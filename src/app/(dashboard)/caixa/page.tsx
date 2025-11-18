@@ -19,7 +19,7 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns"; // Para formatar a data
+import { format } from "date-fns"; 
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,7 @@ interface ItemOS {
   precoUnitario: number;
   custoUnitario?: number;
 }
+// --- ATUALIZADO: Interface da OS ---
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
@@ -84,16 +85,22 @@ interface OrdemDeServico {
   servicosDescricao?: string;
   status: "aberta" | "finalizada";
   itens: ItemOS[];
-  valorTotal: number;
+  valorTotal: number; // Valor Bruto
   custoTotal: number;
   ownerId: string;
-  formaPagamento?: string; // Campo já existe
+  formaPagamento?: string; 
+  descontoAplicado?: number; // % de desconto (ex: 10)
+  valorFinal?: number; // Valor com desconto
 }
 
-// Schema do formulário de pagamento
+// --- ATUALIZADO: Schema do formulário de pagamento ---
 const paymentSchema = z.object({
   formaPagamento: z.string().min(1, { message: "Selecione uma forma de pagamento." }),
+  descontoPercentual: z.coerce.number().default(0), // Coerce para converter string do select
 });
+
+// Opções de desconto
+const discountOptions = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
 export default function CaixaPage() {
   const [ordensAbertas, setOrdensAbertas] = useState<OrdemDeServico[]>([]);
@@ -103,6 +110,9 @@ export default function CaixaPage() {
   
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
+  
+  // --- ATUALIZADO: Pega o status de Admin ---
+  const isAdmin = userData?.role === 'admin';
 
   // Guardião de Rota
   if (authLoading) {
@@ -124,7 +134,6 @@ export default function CaixaPage() {
   // Busca as OSs
   useEffect(() => {
     if (userData) {
-      const isAdmin = userData.role === 'admin';
       const osRef = collection(db, "ordensDeServico");
       
       let q: Query;
@@ -150,14 +159,25 @@ export default function CaixaPage() {
 
       return () => unsub();
     }
-  }, [userData]);
+  }, [userData, isAdmin]); // Adicionado isAdmin
 
+  // --- ATUALIZADO: useForm com novo default ---
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
     defaultValues: {
       formaPagamento: "",
+      descontoPercentual: 0,
     },
   });
+  
+  // --- ATUALIZADO: Observa o valor do desconto ---
+  const desconto = form.watch("descontoPercentual");
+  
+  // Calcula o valor final baseado no OS selecionada e no desconto do formulário
+  const valorFinal = osSelecionada
+    ? osSelecionada.valorTotal * (1 - (desconto || 0) / 100)
+    : 0;
+
 
   // Função para abrir o modal de Detalhes
   const handleVerDetalhes = (os: OrdemDeServico) => {
@@ -170,15 +190,18 @@ export default function CaixaPage() {
     setOsSelecionada(os);
     setIsModalOpen(false); // Fecha o modal de detalhes
     setIsPaymentModalOpen(true); // Abre o modal de pagamento
-    form.reset();
+    form.reset({ formaPagamento: "", descontoPercentual: 0 }); // Reseta o form
   };
 
-  // Função para REGISTRAR o pagamento
+  // --- ATUALIZADO: Função para REGISTRAR o pagamento ---
   async function handleRegistrarPagamento(values: z.infer<typeof paymentSchema>) {
     if (!osSelecionada || !userData) {
       alert("Erro: OS não selecionada ou usuário não autenticado.");
       return;
     }
+
+    // Calcula o valor final novamente para segurança
+    const valorFinalCalculado = osSelecionada.valorTotal * (1 - (values.descontoPercentual || 0) / 100);
 
     try {
       // 1. Atualiza a Ordem de Serviço
@@ -187,6 +210,8 @@ export default function CaixaPage() {
         status: "finalizada",
         formaPagamento: values.formaPagamento,
         dataFechamento: Timestamp.now(),
+        descontoAplicado: values.descontoPercentual, // Salva o %
+        valorFinal: valorFinalCalculado, // Salva o valor com desconto
       });
 
       // 2. Cria a Movimentação Financeira (Entrada no Caixa)
@@ -194,8 +219,8 @@ export default function CaixaPage() {
         data: Timestamp.now(),
         tipo: "entrada",
         descricao: `Venda OS Nº ${osSelecionada.numeroOS}`,
-        valor: osSelecionada.valorTotal,
-        custo: osSelecionada.custoTotal,
+        valor: valorFinalCalculado, // <-- Registra o valor LÍQUIDO (com desconto)
+        custo: osSelecionada.custoTotal, // O custo das peças não muda
         formaPagamento: values.formaPagamento,
         ownerId: userData.id, // ID de quem finalizou a venda
         referenciaId: osSelecionada.id, // ID da OS
@@ -259,11 +284,10 @@ export default function CaixaPage() {
         </div>
       )}
 
-      {/* --- MODAL DE DETALHES (ATUALIZADO) --- */}
+      {/* --- MODAL DE DETALHES (ATUALIZADO PARA MOSTRAR DESCONTO) --- */}
       {osSelecionada && (
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogContent className="sm:max-w-[600px]">
-            {/* --- ATUALIZAÇÃO 1: Nome da Empresa Adicionado --- */}
             <DialogHeader>
               <DialogTitle className="text-2xl">Detalhes da OS: {osSelecionada.numeroOS}</DialogTitle>
               <DialogDescription className="text-lg font-semibold">
@@ -289,7 +313,6 @@ export default function CaixaPage() {
                 <h4 className="font-semibold mt-4">Status</h4>
                 <p className="capitalize font-bold">{osSelecionada.status}</p>
                 
-                {/* --- ATUALIZAÇÃO 2: Forma de Pagamento (Se finalizada) --- */}
                 {osSelecionada.status === 'finalizada' && osSelecionada.formaPagamento && (
                   <>
                     <h4 className="font-semibold mt-4">Forma de Pagamento</h4>
@@ -324,10 +347,25 @@ export default function CaixaPage() {
               </Table>
             </div>
             
+            {/* --- ATUALIZADO: Lógica de Total no Modal de Detalhes --- */}
             <div className="text-right mt-4">
-              <h3 className="text-2xl font-bold">
-                Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
-              </h3>
+              {osSelecionada.status === 'finalizada' && osSelecionada.descontoAplicado && osSelecionada.descontoAplicado > 0 ? (
+                <>
+                  <p className="text-lg line-through text-gray-500">
+                    Subtotal: R$ {osSelecionada.valorTotal.toFixed(2)}
+                  </p>
+                  <p className="text-lg text-red-600">
+                    Desconto: -R$ {(osSelecionada.valorTotal - (osSelecionada.valorFinal || osSelecionada.valorTotal)).toFixed(2)} ({osSelecionada.descontoAplicado}%)
+                  </p>
+                  <h3 className="text-2xl font-bold">
+                    Valor Final: R$ {osSelecionada.valorFinal?.toFixed(2)}
+                  </h3>
+                </>
+              ) : (
+                 <h3 className="text-2xl font-bold">
+                  Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
+                </h3>
+              )}
             </div>
 
             <DialogFooter className="mt-6">
@@ -342,19 +380,49 @@ export default function CaixaPage() {
         </Dialog>
       )}
       
-      {/* --- MODAL DE PAGAMENTO (Sem alterações) --- */}
+      {/* --- MODAL DE PAGAMENTO (ATUALIZADO) --- */}
       {osSelecionada && (
         <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Registrar Pagamento (OS: {osSelecionada.numeroOS})</DialogTitle>
+              {/* Mostra o total original */}
               <DialogDescription>
-                Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
+                Valor Original: R$ {osSelecionada.valorTotal.toFixed(2)}
               </DialogDescription>
             </DialogHeader>
 
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleRegistrarPagamento)} className="space-y-6 pt-4">
+                
+                {/* --- CAMPO DE DESCONTO (SÓ PARA ADMIN) --- */}
+                {isAdmin && (
+                  <FormField
+                    control={form.control}
+                    name="descontoPercentual"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Aplicar Desconto (Admin)</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={String(field.value)}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Sem desconto" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {discountOptions.map(perc => (
+                              <SelectItem key={perc} value={String(perc)}>
+                                {perc}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
                 <FormField
                   control={form.control}
                   name="formaPagamento"
@@ -379,6 +447,26 @@ export default function CaixaPage() {
                   )}
                 />
                 
+                {/* --- MOSTRA O VALOR FINAL COM DESCONTO --- */}
+                <div className="space-y-2">
+                  {desconto > 0 && (
+                    <>
+                      <div className="flex justify-between text-lg">
+                        <span>Subtotal:</span>
+                        <span className="line-through text-gray-500">R$ {osSelecionada.valorTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-lg text-red-600">
+                        <span>Desconto ({desconto}%):</span>
+                        <span>-R$ {(osSelecionada.valorTotal - valorFinal).toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between text-3xl font-bold text-blue-600 border-t pt-2">
+                    <span>Total a Pagar:</span>
+                    <span>R$ {valorFinal.toFixed(2)}</span>
+                  </div>
+                </div>
+
                 <DialogFooter>
                   <Button 
                     type="submit" 

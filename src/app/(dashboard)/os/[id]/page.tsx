@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowLeft, Printer } from "lucide-react";
 
-// --- Interface para os dados da OS (COM NOVOS CAMPOS) ---
+// --- ATUALIZADO: Interface da OS ---
 interface ItemOS {
   id: string;
   nome: string;
@@ -35,10 +35,12 @@ interface OrdemDeServico {
   veiculoModelo: string;
   servicosDescricao: string;
   status: string;
-  valorTotal: number;
+  valorTotal: number; // Valor Bruto
   itens: ItemOS[];
   garantiaDias?: number; 
-  formaPagamento?: string; // <-- ATUALIZAÇÃO: Campo adicionado
+  formaPagamento?: string; 
+  descontoAplicado?: number; // % de desconto (ex: 10)
+  valorFinal?: number; // Valor com desconto
 }
 
 export default function OsDetailPage() {
@@ -75,7 +77,7 @@ export default function OsDetailPage() {
     }
   }, [id]);
 
-  // --- NOVA FUNÇÃO: CALCULAR STATUS DA GARANTIA ---
+  // --- Função para calcular status da garantia ---
   const getGarantiaStatus = (os: OrdemDeServico) => {
     if (os.status !== 'finalizada' || !os.dataFechamento) {
       return <span className="text-gray-500 capitalize">{os.status}</span>;
@@ -140,7 +142,8 @@ export default function OsDetailPage() {
           </div>
           
           {/* Dados do Cliente e Veículo */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          {/* --- ATUALIZAÇÃO: Grid agora com 4 colunas para caber tudo --- */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
             <div>
               <p className="font-semibold">Cliente:</p>
               <p>{os.nomeCliente}</p>
@@ -152,6 +155,10 @@ export default function OsDetailPage() {
             <div>
               <p className="font-semibold">Modelo:</p>
               <p>{os.veiculoModelo}</p>
+            </div>
+             <div>
+              <p className="font-semibold">Status:</p>
+              <p className="capitalize">{os.status}</p>
             </div>
             <div>
               <p className="font-semibold">Data Abertura:</p>
@@ -208,12 +215,27 @@ export default function OsDetailPage() {
             </Table>
           </div>
 
-          {/* Total */}
-          <div className="flex justify-end mt-6">
-            <h2 className="text-2xl font-bold">
-              Total da OS: R$ {os.valorTotal.toFixed(2)}
-            </h2>
+          {/* --- ATUALIZAÇÃO: Lógica de Total na Impressão --- */}
+          <div className="flex flex-col items-end mt-6">
+            {os.status === 'finalizada' && os.descontoAplicado && os.descontoAplicado > 0 ? (
+                <>
+                  <p className="text-lg line-through text-gray-500">
+                    Subtotal: R$ {os.valorTotal.toFixed(2)}
+                  </p>
+                  <p className="text-lg text-red-600">
+                    Desconto: -R$ {(os.valorTotal - (os.valorFinal || os.valorTotal)).toFixed(2)} ({os.descontoAplicado}%)
+                  </p>
+                  <h3 className="text-2xl font-bold">
+                    Valor Final: R$ {os.valorFinal?.toFixed(2)}
+                  </h3>
+                </>
+              ) : (
+                 <h3 className="text-2xl font-bold">
+                  Valor Total: R$ {os.valorTotal.toFixed(2)}
+                </h3>
+              )}
           </div>
+          
         </CardContent>
       </Card>
     </div>
