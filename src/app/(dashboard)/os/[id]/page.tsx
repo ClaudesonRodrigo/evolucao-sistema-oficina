@@ -29,7 +29,7 @@ interface OrdemDeServico {
   id: string;
   numeroOS: number;
   dataAbertura: Timestamp;
-  dataFechamento?: Timestamp; // <-- NOVO CAMPO
+  dataFechamento?: Timestamp; 
   nomeCliente: string;
   veiculoPlaca: string;
   veiculoModelo: string;
@@ -37,7 +37,8 @@ interface OrdemDeServico {
   status: string;
   valorTotal: number;
   itens: ItemOS[];
-  garantiaDias?: number; // <-- NOVO CAMPO
+  garantiaDias?: number; 
+  formaPagamento?: string; // <-- ATUALIZAÇÃO: Campo adicionado
 }
 
 export default function OsDetailPage() {
@@ -132,6 +133,12 @@ export default function OsDetailPage() {
       {/* --- Conteúdo da OS --- */}
       <Card id="os-receipt">
         <CardContent className="p-6">
+          {/* --- ATUALIZAÇÃO: Nome da Empresa Adicionado --- */}
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-bold">Rodrigo Skaps</h2>
+            <p className="text-sm text-gray-600">Comprovante de Ordem de Serviço</p>
+          </div>
+          
           {/* Dados do Cliente e Veículo */}
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div>
@@ -158,6 +165,14 @@ export default function OsDetailPage() {
               <p className="font-semibold">Garantia:</p>
               <p>{getGarantiaStatus(os)}</p>
             </div>
+            
+            {/* --- ATUALIZAÇÃO: Forma de Pagamento Adicionada --- */}
+            {os.status === 'finalizada' && os.formaPagamento && (
+              <div>
+                <p className="font-semibold">Forma de Pagamento:</p>
+                <p>{os.formaPagamento}</p>
+              </div>
+            )}
           </div>
           
           {/* Descrição dos Serviços */}
