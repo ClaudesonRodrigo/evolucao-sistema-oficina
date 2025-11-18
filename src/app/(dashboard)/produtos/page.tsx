@@ -5,9 +5,11 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { collection, addDoc, onSnapshot, query, where, getDocs } from "firebase/firestore"; 
+// ATUALIZADO: Importar doc e updateDoc
+import { collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
-import { Search } from "lucide-react"; 
+// ATUALIZADO: Importar Search e Edit
+import { Search, Edit } from "lucide-react"; 
 
 // --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
@@ -64,7 +66,7 @@ interface ItemOS {
   qtde: number;
 }
 
-// --- SCHEMA DO FORMULÁRIO ATUALIZADO ---
+// --- SCHEMA DO FORMULÁRIO (PARA CRIAR NOVO) ---
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   codigoSku: z.string().optional(),
@@ -82,12 +84,25 @@ const formSchema = z.object({
   path: ["estoqueAtual"],
 });
 
+// --- ATUALIZADO: NOVO SCHEMA SÓ PARA EDIÇÃO ---
+const editFormSchema = z.object({
+  nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
+  precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
+});
+
 
 export default function ProdutosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  
+  // States dos Modais
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [selectedProduto, setSelectedProduto] = useState<Produto | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false); // <-- NOVO STATE
+  
+  // States para seleção
+  const [produtoParaRelatorio, setProdutoParaRelatorio] = useState<Produto | null>(null); // <-- STATE RENOMEADO
+  const [produtoParaEditar, setProdutoParaEditar] = useState<Produto | null>(null); // <-- NOVO STATE
+
   const [totalVendido, setTotalVendido] = useState<number | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
@@ -128,6 +143,7 @@ export default function ProdutosPage() {
     return () => unsub();
   }, []); // Dependência vazia, roda 1x
 
+  // Formulário de CRIAÇÃO
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -139,9 +155,19 @@ export default function ProdutosPage() {
       estoqueAtual: 0,
     },
   });
+  
+  // --- ATUALIZADO: NOVO FORMULÁRIO DE EDIÇÃO ---
+  const editForm = useForm<z.infer<typeof editFormSchema>>({
+    resolver: zodResolver(editFormSchema),
+    defaultValues: {
+      nome: "",
+      precoVenda: 0,
+    },
+  });
 
   const tipoProduto = form.watch("tipo");
 
+  // Função de CRIAR produto
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const dadosParaSalvar = {
@@ -159,9 +185,35 @@ export default function ProdutosPage() {
       console.error("Erro ao salvar produto: ", error);
     }
   }
+  
+  // --- ATUALIZADO: NOVA FUNÇÃO PARA EDITAR PRODUTO ---
+  async function onEditSubmit(values: z.infer<typeof editFormSchema>) {
+    if (!produtoParaEditar) {
+      console.error("Nenhum produto selecionado para edição.");
+      return;
+    }
 
+    try {
+      const docRef = doc(db, "produtos", produtoParaEditar.id);
+      await updateDoc(docRef, {
+        nome: values.nome,
+        precoVenda: values.precoVenda,
+      });
+
+      console.log("Produto atualizado com ID: ", produtoParaEditar.id);
+      editForm.reset();
+      setIsEditModalOpen(false);
+      setProdutoParaEditar(null);
+
+    } catch (error) {
+      console.error("Erro ao atualizar produto: ", error);
+      alert("Erro ao atualizar produto. Verifique o console.");
+    }
+  }
+
+  // Abre modal de Relatório
   const handleVerRelatorio = async (produto: Produto) => {
-    setSelectedProduto(produto);
+    setProdutoParaRelatorio(produto);
     setIsReportModalOpen(true);
     setLoadingReport(true);
     setTotalVendido(null);
@@ -192,6 +244,17 @@ export default function ProdutosPage() {
     } finally {
       setLoadingReport(false);
     }
+  };
+  
+  // --- ATUALIZADO: NOVA FUNÇÃO PARA ABRIR MODAL DE EDIÇÃO ---
+  const handleEditarProduto = (produto: Produto) => {
+    setProdutoParaEditar(produto);
+    // Preenche o formulário de edição com os valores atuais do produto
+    editForm.reset({
+      nome: produto.nome,
+      precoVenda: produto.precoVenda,
+    });
+    setIsEditModalOpen(true);
   };
 
 
@@ -347,7 +410,12 @@ export default function ProdutosPage() {
                 <TableCell>{produto.tipo === 'peca' ? produto.estoqueAtual : 'N/A'}</TableCell>
                 <TableCell>{produto.precoCusto?.toFixed(2)}</TableCell>
                 <TableCell>{produto.precoVenda.toFixed(2)}</TableCell>
+                {/* --- ATUALIZADO: Botão de Editar adicionado --- */}
                 <TableCell>
+                  <Button variant="ghost" size="sm" onClick={() => handleEditarProduto(produto)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Editar
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => handleVerRelatorio(produto)}>
                     <Search className="h-4 w-4 mr-2" />
                     Relatório
@@ -359,20 +427,20 @@ export default function ProdutosPage() {
         </Table>
       </div>
 
-      {/* --- NOVO MODAL DE RELATÓRIO --- */}
+      {/* --- MODAL DE RELATÓRIO (Renomeado) --- */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Relatório de Produto</DialogTitle>
             <DialogDescription>
-              {selectedProduto?.nome}
+              {produtoParaRelatorio?.nome}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
             <div className="flex justify-between items-center">
               <span className="font-medium">Estoque Atual:</span>
               <span className="text-2xl font-bold">
-                {selectedProduto?.tipo === 'peca' ? selectedProduto?.estoqueAtual : 'N/A (Serviço)'}
+                {produtoParaRelatorio?.tipo === 'peca' ? produtoParaRelatorio?.estoqueAtual : 'N/A (Serviço)'}
               </span>
             </div>
             <div className="flex justify-between items-center">
@@ -389,6 +457,62 @@ export default function ProdutosPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* --- ATUALIZADO: NOVO MODAL DE EDIÇÃO --- */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Editar Produto</DialogTitle>
+            <DialogDescription>
+              {produtoParaEditar?.nome}
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 pt-4">
+              
+              <FormField
+                control={editForm.control}
+                name="nome"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome do Item</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ex: Filtro de Ar" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="precoVenda"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Valor de Venda (R$)</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.01" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <DialogFooter>
+                <Button 
+                  type="submit" 
+                  disabled={editForm.formState.isSubmitting}
+                >
+                  {editForm.formState.isSubmitting ? "Salvando..." : "Salvar Alterações"}
+                </Button>
+              </DialogFooter>
+
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

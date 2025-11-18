@@ -1,15 +1,16 @@
 // src/components/MainLayout.tsx
 "use client"; 
 
-import React, { useState } from 'react'; // Importar useState
+import React, { useState } from 'react';
+import Image from 'next/image'; // <-- ATUALIZAÇÃO: Importar o componente de Imagem
 import { useAuth } from '@/context/AuthContext';
 import { Button } from './ui/button';
 import { auth } from '@/lib/firebase';
-import { LogOut, Menu, X } from 'lucide-react'; // Importar Menu e X
+import { LogOut, Menu, X } from 'lucide-react';
 import Link from 'next/link'; 
-import { cn } from '@/lib/utils'; // Importar cn
+import { cn } from '@/lib/utils';
 
-// --- 1. LÓGICA DO MENU (Sem mudanças) ---
+// --- LÓGICA DO MENU (Sem mudanças) ---
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
@@ -28,16 +29,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const { userData } = useAuth();
   const isAdmin = userData?.role === 'admin';
   
-  // --- ATUALIZAÇÃO: State para controlar o menu mobile ---
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // --- ATUALIZAÇÃO: Componente de Menu reutilizável ---
-  // (Para não repetir o código do menu)
+  // --- Componente de Menu reutilizável ---
   const MenuNavegacao = ({ onLinkClick }: { onLinkClick?: () => void }) => (
     <>
-      <div className="p-5 text-2xl font-bold text-center border-b border-gray-700">
-        OficinaControl
+      {/* --- ATUALIZAÇÃO: Logo da Empresa --- */}
+      <div className="p-5 text-center border-b border-gray-700">
+        <Link href="/" onClick={onLinkClick}>
+          <Image
+            src="/Rodrigo03.png" // Caminho para a logo na pasta /public
+            alt="Logo Rodrigo Skaps"
+            width={180} // Ajuste a largura conforme necessário
+            height={50} // Ajuste a altura conforme necessário
+            style={{ objectFit: 'contain', margin: '0 auto' }} // Centraliza e ajusta
+            priority // Carrega a logo mais rápido
+          />
+        </Link>
       </div>
+      
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {menuItens.map((item) => {
           if (!item.adminOnly) {
@@ -82,10 +92,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   );
 
   return (
-    // --- ATUALIZAÇÃO: Layout principal modificado ---
     <div className="relative min-h-screen md:flex">
       
-      {/* --- ATUALIZAÇÃO: Overlay do Menu Mobile --- */}
+      {/* --- Overlay do Menu Mobile --- */}
       {mobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black/60 z-40 md:hidden" 
@@ -94,7 +103,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         />
       )}
 
-      {/* --- ATUALIZAÇÃO: Sidebar Mobile (Flutuante) --- */}
+      {/* --- Sidebar Mobile (Flutuante) --- */}
       <aside 
         className={cn(
           "fixed top-0 left-0 h-full w-64 bg-gray-900 text-white flex flex-col z-50 transition-transform duration-300 ease-in-out md:hidden",
@@ -113,7 +122,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       {/* ===== SIDEBAR (Desktop - Fixo) ===== */}
-      {/* --- ATUALIZAÇÃO: Adicionado 'hidden md:flex' --- */}
       <aside className="w-64 bg-gray-900 text-white flex-col hidden md:flex">
         <MenuNavegacao />
       </aside>
@@ -121,7 +129,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       {/* ===== ÁREA DE CONTEÚDO PRINCIPAL (ATUALIZADO) ===== */}
       <div className="flex-1 flex flex-col w-full md:w-auto">
         
-        {/* --- ATUALIZAÇÃO: Header Mobile com Botão Hambúrguer --- */}
+        {/* --- Header Mobile com Botão Hambúrguer --- */}
         <header className="md:hidden bg-gray-800 text-white p-4 flex items-center shadow-md sticky top-0 z-30">
           <Button 
             variant="ghost" 
@@ -131,10 +139,19 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           >
             <Menu className="h-6 w-6" />
           </Button>
-          <h1 className="text-xl font-bold ml-4">OficinaControl</h1>
+          {/* --- ATUALIZAÇÃO: Logo no Header Mobile --- */}
+          <div className="ml-4">
+            <Image
+              src="/Rodrigo03.png" // Caminho para a logo na pasta /public
+              alt="Logo Rodrigo Skaps"
+              width={130} // Um pouco menor para o header
+              height={36} 
+              style={{ objectFit: 'contain' }}
+              priority
+            />
+          </div>
         </header>
 
-        {/* --- ATUALIZAÇÃO: 'main' agora tem o fundo e padding móvel --- */}
         <main className="flex-1 p-4 md:p-8 overflow-auto bg-gray-100">
           {children} 
         </main>

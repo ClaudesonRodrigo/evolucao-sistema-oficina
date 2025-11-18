@@ -5,21 +5,21 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { db } from "@/lib/firebase";
 import {
   collection,
+  query,
+  where,
   onSnapshot,
   doc,
   updateDoc,
-  query,
-  where,
   Timestamp,
   addDoc,
-  Query, // Importa o tipo 'Query'
+  Query, 
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns"; // Para formatar a data
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -40,6 +41,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Form,
   FormControl,
   FormField,
@@ -47,42 +55,56 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Card, CardContent } from "@/components/ui/card";
 
-// --- INTERFACE ATUALIZADA ---
+// --- Interfaces ---
+interface Produto {
+  id: string; 
+  nome: string;
+  codigoSku?: string;
+  precoCusto: number;
+  precoVenda: number;
+  estoqueAtual: number;
+  tipo: "peca" | "servico";
+}
+interface ItemOS {
+  id: string;
+  nome: string;
+  qtde: number;
+  precoUnitario: number;
+  custoUnitario?: number;
+}
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
-  dataAbertura: { seconds: number };
+  dataAbertura: Timestamp;
   nomeCliente: string;
-  placaVeiculo: string;
-  status: "aberta" | "finalizada" | "cancelada";
+  veiculoPlaca: string;
+  veiculoModelo: string;
+  servicosDescricao?: string;
+  status: "aberta" | "finalizada";
+  itens: ItemOS[];
   valorTotal: number;
-  custoTotal: number; 
-  ownerId?: string; 
+  custoTotal: number;
+  ownerId: string;
+  formaPagamento?: string; // Campo já existe
 }
 
-// --- Schema de Validação ZOD para o pagamento ---
-const pagamentoSchema = z.object({
-  formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito", "cartao_credito"]),
+// Schema do formulário de pagamento
+const paymentSchema = z.object({
+  formaPagamento: z.string().min(1, { message: "Selecione uma forma de pagamento." }),
 });
 
 export default function CaixaPage() {
-  const [osAbertas, setOsAbertas] = useState<OrdemDeServico[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [ordensAbertas, setOrdensAbertas] = useState<OrdemDeServico[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [osSelecionada, setOsSelecionada] = useState<OrdemDeServico | null>(null);
   
-  const [selectedOS, setSelectedOS] = useState<OrdemDeServico | null>(null);
-
-  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // Guardião de Rota
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -90,7 +112,7 @@ export default function CaixaPage() {
       </div>
     );
   }
-  if (!userData) { 
+  if (!userData) {
     router.push('/login');
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -98,176 +120,241 @@ export default function CaixaPage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
 
-  // --- Efeito para buscar OS "abertas" (ATUALIZADO COM LÓGICA DE ADMIN) ---
+  // Busca as OSs
   useEffect(() => {
     if (userData) {
-      setLoading(true);
       const isAdmin = userData.role === 'admin';
       const osRef = collection(db, "ordensDeServico");
       
       let q: Query;
       
-      if (isAdmin) {
-        // ADMIN: Busca TODAS as OSs abertas
-        q = query(osRef, where("status", "==", "aberta"));
-      } else {
-        // OPERADOR: Busca SÓ as suas OSs abertas
-        q = query(
-          osRef, 
-          where("status", "==", "aberta"),
-          where("ownerId", "==", userData.id)
-        );
-      }
+      // Filtro base: Status "aberta"
+      const statusFilter = where("status", "==", "aberta");
 
-      const unsub = onSnapshot(q, (snapshot) => {
+      if (isAdmin) {
+        // Admin vê todas as OS abertas
+        q = query(osRef, statusFilter);
+      } else {
+        // Operador vê SÓ AS DELE que estão abertas
+        q = query(osRef, statusFilter, where("ownerId", "==", userData.id));
+      }
+      
+      const unsub = onSnapshot(q, (querySnapshot) => {
         const listaOS: OrdemDeServico[] = [];
-        snapshot.forEach((doc) => {
+        querySnapshot.forEach((doc) => {
           listaOS.push({ id: doc.id, ...doc.data() } as OrdemDeServico);
         });
-        setOsAbertas(listaOS);
-        setLoading(false);
+        setOrdensAbertas(listaOS); 
       });
 
       return () => unsub();
     }
-  }, [userData]); // Roda quando 'userData' for carregado
+  }, [userData]);
 
-  // --- Configuração do Formulário de Pagamento ---
-  const form = useForm<z.infer<typeof pagamentoSchema>>({
-    resolver: zodResolver(pagamentoSchema),
+  const form = useForm<z.infer<typeof paymentSchema>>({
+    resolver: zodResolver(paymentSchema),
     defaultValues: {
-      formaPagamento: "dinheiro",
+      formaPagamento: "",
     },
   });
 
-  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (Sem mudanças) ---
-  async function onSubmit(values: z.infer<typeof pagamentoSchema>) {
-    if (!selectedOS || !userData) {
-      alert("Erro: OS ou Usuário não selecionado.");
+  // Função para abrir o modal de Detalhes
+  const handleVerDetalhes = (os: OrdemDeServico) => {
+    setOsSelecionada(os);
+    setIsModalOpen(true);
+  };
+
+  // Função para abrir o modal de Pagamento
+  const handleAbrirPagamento = (os: OrdemDeServico) => {
+    setOsSelecionada(os);
+    setIsModalOpen(false); // Fecha o modal de detalhes
+    setIsPaymentModalOpen(true); // Abre o modal de pagamento
+    form.reset();
+  };
+
+  // Função para REGISTRAR o pagamento
+  async function handleRegistrarPagamento(values: z.infer<typeof paymentSchema>) {
+    if (!osSelecionada || !userData) {
+      alert("Erro: OS não selecionada ou usuário não autenticado.");
       return;
     }
 
-    const dataFinalizacao = new Date();
-
     try {
-      // --- PASSO 1: ATUALIZAR A ORDEM DE SERVIÇO ---
-      const osDocRef = doc(db, "ordensDeServico", selectedOS.id);
+      // 1. Atualiza a Ordem de Serviço
+      const osDocRef = doc(db, "ordensDeServico", osSelecionada.id);
       await updateDoc(osDocRef, {
         status: "finalizada",
         formaPagamento: values.formaPagamento,
-        dataFechamento: dataFinalizacao,
+        dataFechamento: Timestamp.now(),
       });
-      console.log("OS finalizada com sucesso!");
 
-      // --- PASSO 2: REGISTRAR "ENTRADA" NO LIVRO CAIXA ---
+      // 2. Cria a Movimentação Financeira (Entrada no Caixa)
       await addDoc(collection(db, "movimentacoes"), {
-        data: dataFinalizacao,
+        data: Timestamp.now(),
         tipo: "entrada",
-        descricao: `Venda OS #${selectedOS.numeroOS}`,
-        valor: selectedOS.valorTotal,
-        custo: selectedOS.custoTotal || 0,
+        descricao: `Venda OS Nº ${osSelecionada.numeroOS}`,
+        valor: osSelecionada.valorTotal,
+        custo: osSelecionada.custoTotal,
         formaPagamento: values.formaPagamento,
-        referenciaId: selectedOS.id, 
-        ownerId: selectedOS.ownerId || userData.id // Usa o ownerId da OS, ou o do caixa se falhar
+        ownerId: userData.id, // ID de quem finalizou a venda
+        referenciaId: osSelecionada.id, // ID da OS
       });
-      console.log("Movimentação de entrada registrada!");
 
-      // --- Limpeza do formulário ---
-      setSelectedOS(null);
-      form.reset();
-      
+      console.log("Venda finalizada com sucesso!");
+      setIsPaymentModalOpen(false);
+      setOsSelecionada(null);
+
     } catch (error) {
-      console.error("Erro ao finalizar OS e registrar movimentação:", error);
+      console.error("Erro ao registrar pagamento: ", error);
+      alert("Erro ao registrar pagamento. Verifique o console.");
     }
   }
 
-  // --- Renderização ---
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-4xl font-bold">Frente de Caixa</h1>
-      </div>
-      <p className="text-lg mb-4">
-        Ordens de serviço aguardando pagamento.
-      </p>
-
-      {/* --- Tabela de OS Abertas --- */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nº OS</TableHead>
-              <TableHead>Data</TableHead>
-              <TableHead>Cliente</TableHead>
-              <TableHead>Placa</TableHead>
-              <TableHead>Valor Total</TableHead>
-              <TableHead>Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && (
+      <h1 className="text-4xl font-bold mb-6">Frente de Caixa</h1>
+      
+      {ordensAbertas.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-lg">Nenhuma Ordem de Serviço aberta no momento.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center">
-                  Carregando...
-                </TableCell>
+                <TableHead>Nº OS</TableHead>
+                <TableHead>Data</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Placa</TableHead>
+                <TableHead>Valor (R$)</TableHead>
+                <TableHead>Ações</TableHead>
               </TableRow>
-            )}
-            {!loading && osAbertas.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center">
-                  Nenhuma OS aguardando pagamento.
-                </TableCell>
-              </TableRow>
-            )}
-            {/* Agora lista TODAS (admin) ou SÓ AS SUAS (operador) */}
-            {!loading && osAbertas.map((os) => (
-              <TableRow key={os.id}>
-                <TableCell>{os.numeroOS}</TableCell>
-                <TableCell>
-                  {new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}
-                </TableCell>
-                <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.placaVeiculo}</TableCell>
-                <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
-                <TableCell>
-                  <Button size="sm" onClick={() => setSelectedOS(os)}>
-                    Registrar Pagamento
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {ordensAbertas.map((os) => (
+                <TableRow key={os.id}>
+                  <TableCell className="font-medium">{os.numeroOS}</TableCell>
+                  <TableCell>
+                    {format(new Date(os.dataAbertura.seconds * 1000), 'dd/MM/yyyy')}
+                  </TableCell>
+                  <TableCell>{os.nomeCliente}</TableCell>
+                  <TableCell>{os.veiculoPlaca}</TableCell>
+                  <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
+                  <TableCell>
+                    <Button variant="outline" size="sm" onClick={() => handleVerDetalhes(os)} className="mr-2">
+                      Ver Detalhes
+                    </Button>
+                    <Button size="sm" onClick={() => handleAbrirPagamento(os)}>
+                      Registrar Pagamento
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {/* --- Modal de Registro de Pagamento --- */}
-      <Dialog
-        open={!!selectedOS}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setSelectedOS(null);
-            form.reset();
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Finalizar OS: {selectedOS?.numeroOS}</DialogTitle>
-            <DialogDescription>
-              Cliente: {selectedOS?.nomeCliente} <br />
-              Placa: {selectedOS?.placaVeiculo}
-            </DialogDescription>
-          </DialogHeader>
+      {/* --- MODAL DE DETALHES (ATUALIZADO) --- */}
+      {osSelecionada && (
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <DialogContent className="sm:max-w-[600px]">
+            {/* --- ATUALIZAÇÃO 1: Nome da Empresa Adicionado --- */}
+            <DialogHeader>
+              <DialogTitle className="text-2xl">Detalhes da OS: {osSelecionada.numeroOS}</DialogTitle>
+              <DialogDescription className="text-lg font-semibold">
+                Rodrigo Skaps
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="py-4">
-            <h3 className="text-3xl font-bold text-center mb-6">
-              Total: R$ {selectedOS?.valorTotal.toFixed(2)}
-            </h3>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              {/* Coluna 1: Cliente e Veículo */}
+              <div className="space-y-2">
+                <h4 className="font-semibold">Cliente</h4>
+                <p>{osSelecionada.nomeCliente}</p>
+                
+                <h4 className="font-semibold mt-4">Veículo</h4>
+                <p>{osSelecionada.veiculoModelo} - {osSelecionada.veiculoPlaca}</p>
+              </div>
+
+              {/* Coluna 2: Datas e Status */}
+              <div className="space-y-2">
+                <h4 className="font-semibold">Data de Abertura</h4>
+                <p>{format(new Date(osSelecionada.dataAbertura.seconds * 1000), 'dd/MM/yyyy HH:mm')}</p>
+                
+                <h4 className="font-semibold mt-4">Status</h4>
+                <p className="capitalize font-bold">{osSelecionada.status}</p>
+                
+                {/* --- ATUALIZAÇÃO 2: Forma de Pagamento (Se finalizada) --- */}
+                {osSelecionada.status === 'finalizada' && osSelecionada.formaPagamento && (
+                  <>
+                    <h4 className="font-semibold mt-4">Forma de Pagamento</h4>
+                    <p className="font-bold">{osSelecionada.formaPagamento}</p>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Itens da OS */}
+            <h4 className="font-semibold mb-2">Itens e Serviços</h4>
+            <div className="rounded-md border max-h-48 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Qtde</TableHead>
+                    <TableHead>Vl. Unit.</TableHead>
+                    <TableHead>Vl. Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {osSelecionada.itens.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.nome}</TableCell>
+                      <TableCell>{item.qtde}</TableCell>
+                      <TableCell>R$ {item.precoUnitario.toFixed(2)}</TableCell>
+                      <TableCell>R$ {(item.qtde * item.precoUnitario).toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            
+            <div className="text-right mt-4">
+              <h3 className="text-2xl font-bold">
+                Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
+              </h3>
+            </div>
+
+            <DialogFooter className="mt-6">
+              <Button variant="outline" onClick={() => setIsModalOpen(false)}>Fechar</Button>
+              {osSelecionada.status === 'aberta' && (
+                <Button onClick={() => handleAbrirPagamento(osSelecionada)}>
+                  Ir para Pagamento
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      
+      {/* --- MODAL DE PAGAMENTO (Sem alterações) --- */}
+      {osSelecionada && (
+        <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Registrar Pagamento (OS: {osSelecionada.numeroOS})</DialogTitle>
+              <DialogDescription>
+                Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
+              </DialogDescription>
+            </DialogHeader>
 
             <Form {...form}>
-              <form id="pagamentoForm" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(handleRegistrarPagamento)} className="space-y-6 pt-4">
                 <FormField
                   control={form.control}
                   name="formaPagamento"
@@ -281,30 +368,33 @@ export default function CaixaPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                          <SelectItem value="pix">Pix</SelectItem>
-                          <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                          <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                          <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                          <SelectItem value="Pix">Pix</SelectItem>
+                          <SelectItem value="Cartão de Débito">Cartão de Débito</SelectItem>
+                          <SelectItem value="Cartão de Crédito">Cartão de Crédito</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                
+                <DialogFooter>
+                  <Button 
+                    type="submit" 
+                    disabled={form.formState.isSubmitting} 
+                    className="w-full"
+                    size="lg"
+                  >
+                    {form.formState.isSubmitting ? "Finalizando..." : "Finalizar Venda"}
+                  </Button>
+                </DialogFooter>
               </form>
             </Form>
-          </div>
-          <DialogFooter>
-            <Button
-              type="submit"
-              form="pagamentoForm" 
-              disabled={form.formState.isSubmitting}
-            >
-              {form.formState.isSubmitting ? "Finalizando..." : "Finalizar Pagamento"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }
