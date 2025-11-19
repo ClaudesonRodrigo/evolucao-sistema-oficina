@@ -2,7 +2,7 @@
 "use client"; 
 
 import React, { useState } from 'react';
-import Image from 'next/image'; // <-- ATUALIZAÇÃO: Importar o componente de Imagem
+import Image from 'next/image'; 
 import { useAuth } from '@/context/AuthContext';
 import { Button } from './ui/button';
 import { auth } from '@/lib/firebase';
@@ -10,7 +10,7 @@ import { LogOut, Menu, X } from 'lucide-react';
 import Link from 'next/link'; 
 import { cn } from '@/lib/utils';
 
-// --- LÓGICA DO MENU (Sem mudanças) ---
+// --- ATUALIZAÇÃO: Item "Veículos" adicionado ---
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
@@ -19,6 +19,7 @@ const menuItens = [
   { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true },
   { nome: 'Entrada de Estoque', href: '/entrada-estoque', adminOnly: true },
   { nome: 'Clientes', href: '/clientes', adminOnly: false },
+  { nome: 'Veículos', href: '/carros', adminOnly: false }, // <-- NOVO ITEM
   { nome: 'Fornecedores', href: '/fornecedores', adminOnly: false },
   { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true },
   { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true },
@@ -34,16 +35,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   // --- Componente de Menu reutilizável ---
   const MenuNavegacao = ({ onLinkClick }: { onLinkClick?: () => void }) => (
     <>
-      {/* --- ATUALIZAÇÃO: Logo da Empresa --- */}
+      {/* Logo da Empresa */}
       <div className="p-5 text-center border-b border-gray-700">
         <Link href="/" onClick={onLinkClick}>
           <Image
-            src="/Rodrigo03.png" // Caminho para a logo na pasta /public
+            src="/logo.png" 
             alt="Logo Rodrigo Skaps"
-            width={180} // Ajuste a largura conforme necessário
-            height={50} // Ajuste a altura conforme necessário
-            style={{ objectFit: 'contain', margin: '0 auto' }} // Centraliza e ajusta
-            priority // Carrega a logo mais rápido
+            width={180} 
+            height={50} 
+            style={{ objectFit: 'contain', margin: '0 auto' }} 
+            priority 
           />
         </Link>
       </div>
@@ -56,7 +57,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 key={item.nome}
                 href={item.href}
                 className="block px-4 py-2 rounded text-lg hover:bg-gray-700 transition-colors"
-                onClick={onLinkClick} // Fecha o menu ao clicar
+                onClick={onLinkClick} 
               >
                 {item.nome}
               </Link>
@@ -68,7 +69,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 key={item.nome}
                 href={item.href}
                 className="block px-4 py-2 rounded text-lg hover:bg-gray-700 transition-colors"
-                onClick={onLinkClick} // Fecha o menu ao clicar
+                onClick={onLinkClick} 
               >
                 {item.nome}
               </Link>
@@ -126,10 +127,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <MenuNavegacao />
       </aside>
 
-      {/* ===== ÁREA DE CONTEÚDO PRINCIPAL (ATUALIZADO) ===== */}
+      {/* ===== ÁREA DE CONTEÚDO PRINCIPAL ===== */}
       <div className="flex-1 flex flex-col w-full md:w-auto">
         
-        {/* --- Header Mobile com Botão Hambúrguer --- */}
+        {/* --- Header Mobile --- */}
         <header className="md:hidden bg-gray-800 text-white p-4 flex items-center shadow-md sticky top-0 z-30">
           <Button 
             variant="ghost" 
@@ -139,12 +140,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           >
             <Menu className="h-6 w-6" />
           </Button>
-          {/* --- ATUALIZAÇÃO: Logo no Header Mobile --- */}
+          {/* Logo no Header Mobile */}
           <div className="ml-4">
             <Image
-              src="/Rodrigo03.png" // Caminho para a logo na pasta /public
+              src="/logo.png" 
               alt="Logo Rodrigo Skaps"
-              width={130} // Um pouco menor para o header
+              width={130} 
               height={36} 
               style={{ objectFit: 'contain' }}
               priority

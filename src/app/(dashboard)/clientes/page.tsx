@@ -1,4 +1,4 @@
-// src/app/clientes/page.tsx
+// src/app/(dashboard)/clientes/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -7,8 +7,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importar 'query', 'where' e 'Query'
-import { collection, addDoc, onSnapshot, query, where, Query } from "firebase/firestore"; 
+// ATUALIZADO: Importações para Edição e Exclusão
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  Query, 
+  doc, 
+  updateDoc, 
+  deleteDoc 
+} from "firebase/firestore"; 
+// ATUALIZADO: Ícones
+import { Edit, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -47,7 +59,7 @@ interface Cliente {
   nome: string;
   telefone?: string;
   cpfCnpj?: string;
-  ownerId?: string; // Campo de segurança
+  ownerId?: string;
 }
 
 const formSchema = z.object({
@@ -58,13 +70,17 @@ const formSchema = z.object({
 
 export default function ClientesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // --- NOVOS STATES PARA EDIÇÃO ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [clienteParaEditar, setClienteParaEditar] = useState<Cliente | null>(null);
+  
   const [clientes, setClientes] = useState<Cliente[]>([]);
   
-  // Pega o 'userData' (que tem o ID) e o 'authLoading'
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // --- GUARDIÃO DE ROTA ---
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -72,7 +88,6 @@ export default function ClientesPage() {
       </div>
     );
   }
-  // Se não estiver logado, redireciona
   if (!userData) { 
     router.push('/login');
     return (
@@ -81,23 +96,18 @@ export default function ClientesPage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
   
-  
-  // --- useEffect ATUALIZADO ---
-  // (Admin vê todos, Operador vê apenas os seus)
+  // --- BUSCA DE DADOS ---
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       const clientesRef = collection(db, "clientes");
       
-      let q: Query; // Usa o tipo Query importado
+      let q: Query;
 
       if (isAdmin) {
-        // Admin vê TUDO
         q = query(clientesRef);
       } else {
-        // Operador vê SÓ O DELE
         q = query(clientesRef, where("ownerId", "==", userData.id));
       }
       
@@ -114,8 +124,9 @@ export default function ClientesPage() {
 
       return () => unsub(); 
     }
-  }, [userData]); // Roda de novo se o usuário (userData) mudar
+  }, [userData]);
 
+  // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -125,33 +136,79 @@ export default function ClientesPage() {
     },
   });
 
-  // --- onSubmit ATUALIZADO ---
-  // (Agora salva o ownerId)
+  const editForm = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      nome: "",
+      telefone: "",
+      cpfCnpj: "",
+    },
+  });
+
+  // --- FUNÇÃO CRIAR ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    // Validação extra (caso o guardião falhe)
     if (!userData) {
       alert("Erro: Usuário não autenticado.");
       return;
     }
 
     try {
-      // 1. Monta o documento com o ownerId
       const docParaSalvar = {
         ...values,
-        ownerId: userData.id // AQUI ESTÁ A MUDANÇA
+        ownerId: userData.id
       };
       
-      // 2. Salva na coleção "clientes"
-      const docRef = await addDoc(collection(db, "clientes"), docParaSalvar);
+      await addDoc(collection(db, "clientes"), docParaSalvar);
       
-      console.log("Cliente salvo com ID: ", docRef.id);
       form.reset();
       setIsModalOpen(false);
-
     } catch (error) {
       console.error("Erro ao salvar cliente: ", error);
     }
   }
+
+  // --- FUNÇÃO EDITAR ---
+  const handleEditarCliente = (cliente: Cliente) => {
+    setClienteParaEditar(cliente);
+    editForm.reset({
+      nome: cliente.nome,
+      telefone: cliente.telefone || "",
+      cpfCnpj: cliente.cpfCnpj || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  async function onEditSubmit(values: z.infer<typeof formSchema>) {
+    if (!clienteParaEditar) return;
+
+    try {
+      const docRef = doc(db, "clientes", clienteParaEditar.id);
+      await updateDoc(docRef, {
+        nome: values.nome,
+        telefone: values.telefone,
+        cpfCnpj: values.cpfCnpj,
+      });
+
+      console.log("Cliente atualizado!");
+      setIsEditModalOpen(false);
+      setClienteParaEditar(null);
+    } catch (error) {
+      console.error("Erro ao atualizar cliente: ", error);
+      alert("Erro ao atualizar cliente.");
+    }
+  }
+
+  // --- FUNÇÃO EXCLUIR ---
+  const handleDeleteCliente = async (cliente: Cliente) => {
+    if (confirm(`Tem certeza que deseja excluir o cliente "${cliente.nome}"?`)) {
+      try {
+        await deleteDoc(doc(db, "clientes", cliente.id));
+      } catch (error) {
+        console.error("Erro ao excluir:", error);
+        alert("Erro ao excluir cliente. Verifique se você tem permissão.");
+      }
+    }
+  };
 
   return (
     <div>
@@ -172,7 +229,6 @@ export default function ClientesPage() {
 
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                
                 <FormField
                   control={form.control}
                   name="nome"
@@ -186,7 +242,6 @@ export default function ClientesPage() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="telefone"
@@ -200,7 +255,6 @@ export default function ClientesPage() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="cpfCnpj"
@@ -214,16 +268,11 @@ export default function ClientesPage() {
                     </FormItem>
                   )}
                 />
-
                 <DialogFooter>
-                  <Button 
-                    type="submit" 
-                    disabled={form.formState.isSubmitting}
-                  >
+                  <Button type="submit" disabled={form.formState.isSubmitting}>
                     {form.formState.isSubmitting ? "Salvando..." : "Salvar Cliente"}
                   </Button>
                 </DialogFooter>
-
               </form>
             </Form>
           </DialogContent>
@@ -246,12 +295,76 @@ export default function ClientesPage() {
                 <TableCell className="font-medium">{cliente.nome}</TableCell>
                 <TableCell>{cliente.telefone}</TableCell>
                 <TableCell>{cliente.cpfCnpj}</TableCell>
-                <TableCell>{/* TODO: Botões de Editar/Excluir */}</TableCell>
+                <TableCell className="flex gap-2">
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarCliente(cliente)}>
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button variant="destructive" size="icon-sm" onClick={() => handleDeleteCliente(cliente)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* --- MODAL DE EDIÇÃO --- */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Editar Cliente</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+              <FormField
+                control={editForm.control}
+                name="nome"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome do Cliente</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="telefone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Telefone / WhatsApp</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="cpfCnpj"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CPF ou CNPJ</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="submit" disabled={editForm.formState.isSubmitting}>
+                  {editForm.formState.isSubmitting ? "Salvando..." : "Salvar Alterações"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

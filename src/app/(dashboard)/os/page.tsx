@@ -5,16 +5,16 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+// ATUALIZADO: Importar deleteDoc e doc
 import {
   collection,
-  addDoc,
   onSnapshot,
-  doc,
-  Timestamp,
   getDocs,
   query,
   where,
-  Query, // Importa o tipo 'Query'
+  Query,
+  deleteDoc,
+  doc, 
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
@@ -87,6 +87,13 @@ interface Produto {
   estoqueAtual: number;
   tipo: "peca" | "servico";
 }
+interface Carro {
+  id: string;
+  modelo: string;
+  placa: string;
+  clienteId: string;
+}
+
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
@@ -125,9 +132,12 @@ export default function OsPage() {
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  
+  const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
+  
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // --- GUARDIÃO DE ROTA ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -146,23 +156,19 @@ export default function OsPage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
 
-
-  // --- Efeito para Buscar TODOS os dados (ATUALIZADO COM LÓGICA DE ADMIN) ---
+  // --- Efeito para Buscar TODOS os dados ---
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       
-      // --- 1. Lógica de Busca de OS ---
+      // 1. Lógica de Busca de OS
       let qOS: Query;
       const osRef = collection(db, "ordensDeServico");
       
       if (isAdmin) {
-        // ADMIN: Busca TODAS as OSs
         qOS = query(osRef); 
       } else {
-        // OPERADOR: Busca SÓ as suas OSs
         qOS = query(osRef, where("ownerId", "==", userData.id));
       }
       
@@ -174,8 +180,7 @@ export default function OsPage() {
         );
       });
 
-      // --- 2. Lógica de Busca de Clientes ---
-      // (Já estava correto, todos precisam ver todos os clientes)
+      // 2. Busca de Clientes
       const qClientes = query(collection(db, "clientes"));
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(
@@ -183,7 +188,7 @@ export default function OsPage() {
         );
       });
       
-      // 3. Busca Produtos (Catálogo é público)
+      // 3. Busca Produtos
       const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
         setProdutos(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
@@ -196,7 +201,7 @@ export default function OsPage() {
         unsubProdutos();
       };
     }
-  }, [userData]); // Roda quando 'userData' for carregado
+  }, [userData]);
 
   // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof osFormSchema>>({
@@ -216,7 +221,42 @@ export default function OsPage() {
     name: "itens",
   });
 
-  // --- Função adicionarProduto (Sem mudanças) ---
+  // --- Efeito para buscar carros quando o cliente muda ---
+  const clienteIdSelecionado = form.watch("clienteId");
+
+  useEffect(() => {
+    if (clienteIdSelecionado) {
+      form.setValue("veiculoPlaca", "");
+      form.setValue("veiculoModelo", "");
+
+      const q = query(
+        collection(db, "carros"),
+        where("clienteId", "==", clienteIdSelecionado)
+      );
+
+      const unsub = onSnapshot(q, (snapshot) => {
+        setVeiculosCliente(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Carro))
+        );
+      });
+
+      return () => unsub();
+    } else {
+      setVeiculosCliente([]);
+    }
+  }, [clienteIdSelecionado, form]);
+
+  // --- Função para preencher dados ao selecionar um carro ---
+  const handleCarroSelecionado = (carroId: string) => {
+    const carro = veiculosCliente.find((c) => c.id === carroId);
+    if (carro) {
+      form.setValue("veiculoPlaca", carro.placa);
+      form.setValue("veiculoModelo", carro.modelo);
+    }
+  };
+
+
+  // --- Função adicionarProduto ---
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
@@ -244,7 +284,7 @@ export default function OsPage() {
     setIsComboboxOpen(false);
   };
 
-  // --- Cálculos de Total (Sem mudanças) ---
+  // --- Cálculos de Total ---
   const watchedItens = form.watch("itens");
   const valorTotalOS = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0; 
@@ -260,7 +300,7 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (Sem mudanças) ---
+  // --- FUNÇÃO ON SUBMIT ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
     if (!userData) {
@@ -268,20 +308,17 @@ export default function OsPage() {
       return;
     }
 
-    // --- Verificação de OS aberta (CORRIGIDO com lógica de Admin) ---
     try {
       let q: Query;
       const osRef = collection(db, "ordensDeServico");
       
       if (userData.role === 'admin') {
-         // Admin checa se o cliente tem OS aberta por QUALQUER usuário
          q = query(
           osRef,
           where("clienteId", "==", values.clienteId),
           where("status", "==", "aberta")
          );
       } else {
-         // Operador checa se o cliente tem OS aberta SÓ POR ELE
          q = query(
           osRef,
           where("clienteId", "==", values.clienteId),
@@ -293,7 +330,7 @@ export default function OsPage() {
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
-        alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto. Finalize a OS anterior ('Frente de Caixa') antes de criar uma nova.");
+        alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto.");
         return; 
       }
     } catch (error) {
@@ -359,7 +396,6 @@ export default function OsPage() {
     }
   }
 
-  // --- Renderização ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -372,14 +408,14 @@ export default function OsPage() {
             <DialogHeader>
               <DialogTitle>Criar Nova Ordem de Serviço</DialogTitle>
               <DialogDescription>
-                Preencha os dados do cliente, veículo e os serviços/peças.
+                Preencha as informações do cliente, veículo e os serviços/peças.
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 
                 {/* --- SEÇÃO DADOS DO CLIENTE --- */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="clienteId"
@@ -393,7 +429,6 @@ export default function OsPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {/* Agora a lista de clientes deve aparecer */}
                             {clientes.map((cliente) => (
                               <SelectItem key={cliente.id} value={cliente.id}>
                                 {cliente.nome}
@@ -405,6 +440,31 @@ export default function OsPage() {
                       </FormItem>
                     )}
                   />
+
+                  {/* Seleção de Carro Cadastrado */}
+                  {veiculosCliente.length > 0 && (
+                     <FormItem>
+                        <FormLabel>Veículo Cadastrado (Opcional)</FormLabel>
+                        <Select onValueChange={handleCarroSelecionado}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione da lista..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {veiculosCliente.map((carro) => (
+                              <SelectItem key={carro.id} value={carro.id}>
+                                {carro.modelo} - {carro.placa}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                  )}
+                </div>
+
+                {/* --- SEÇÃO DADOS DO VEÍCULO --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="veiculoPlaca"
@@ -443,7 +503,7 @@ export default function OsPage() {
                         <FormLabel>Descrição dos Serviços / Observações</FormLabel>
                         <FormControl>
                           <Textarea
-                            placeholder="Descreva os serviços a serem realizados ou observações sobre o veículo..."
+                            placeholder="Descreva os serviços a serem realizados..."
                             {...field}
                           />
                         </FormControl>
@@ -599,7 +659,6 @@ export default function OsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {/* Agora lista TODAS (admin) ou SÓ AS SUAS (operador) */}
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>
@@ -619,10 +678,33 @@ export default function OsPage() {
                 </TableCell>
                 <TableCell>{os.status}</TableCell>
                 <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
-                <TableCell>
+                <TableCell className="flex items-center">
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/os/${os.id}`}>Ver Detalhes</Link>
                   </Button>
+                  
+                  {/* ATUALIZAÇÃO: Botão de Excluir para Admin */}
+                  {userData?.role === 'admin' && (
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      className="ml-2"
+                      onClick={async () => {
+                        const confirmacao = confirm(`Tem certeza que deseja excluir a OS #${os.numeroOS}?`);
+                        if (confirmacao) {
+                          try {
+                             await deleteDoc(doc(db, "ordensDeServico", os.id));
+                             alert("OS excluída com sucesso!");
+                          } catch (error) {
+                             console.error("Erro ao excluir:", error);
+                             alert("Erro ao excluir OS.");
+                          }
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

@@ -5,13 +5,22 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// ATUALIZADO: Importar doc e updateDoc
-import { collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc } from "firebase/firestore"; 
+// ATUALIZADO: Importar deleteDoc
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  getDocs, 
+  doc, 
+  updateDoc, 
+  deleteDoc 
+} from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importar Search e Edit
-import { Search, Edit } from "lucide-react"; 
+// ATUALIZADO: Importar Trash2
+import { Search, Edit, Trash2 } from "lucide-react"; 
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -51,7 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// --- INTERFACE DO PRODUTO ATUALIZADA ---
+// --- INTERFACES ---
 interface Produto {
   id: string; 
   nome: string;
@@ -66,7 +75,7 @@ interface ItemOS {
   qtde: number;
 }
 
-// --- SCHEMA DO FORMULÁRIO (PARA CRIAR NOVO) ---
+// --- SCHEMA DE CRIAÇÃO ---
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   codigoSku: z.string().optional(),
@@ -84,7 +93,7 @@ const formSchema = z.object({
   path: ["estoqueAtual"],
 });
 
-// --- ATUALIZADO: NOVO SCHEMA SÓ PARA EDIÇÃO ---
+// --- SCHEMA DE EDIÇÃO ---
 const editFormSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
@@ -97,16 +106,16 @@ export default function ProdutosPage() {
   
   // States dos Modais
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false); // <-- NOVO STATE
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   
   // States para seleção
-  const [produtoParaRelatorio, setProdutoParaRelatorio] = useState<Produto | null>(null); // <-- STATE RENOMEADO
-  const [produtoParaEditar, setProdutoParaEditar] = useState<Produto | null>(null); // <-- NOVO STATE
+  const [produtoParaRelatorio, setProdutoParaRelatorio] = useState<Produto | null>(null);
+  const [produtoParaEditar, setProdutoParaEditar] = useState<Produto | null>(null);
 
   const [totalVendido, setTotalVendido] = useState<number | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // Guardião de Rota
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -126,9 +135,8 @@ export default function ProdutosPage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
 
-  // (Só roda se for ADMIN)
+  // Busca Produtos
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "produtos"), (querySnapshot) => {
       const listaDeProdutos: Produto[] = [];
@@ -141,7 +149,7 @@ export default function ProdutosPage() {
       setProdutos(listaDeProdutos);
     });
     return () => unsub();
-  }, []); // Dependência vazia, roda 1x
+  }, []);
 
   // Formulário de CRIAÇÃO
   const form = useForm<z.infer<typeof formSchema>>({
@@ -156,7 +164,7 @@ export default function ProdutosPage() {
     },
   });
   
-  // --- ATUALIZADO: NOVO FORMULÁRIO DE EDIÇÃO ---
+  // Formulário de EDIÇÃO
   const editForm = useForm<z.infer<typeof editFormSchema>>({
     resolver: zodResolver(editFormSchema),
     defaultValues: {
@@ -167,7 +175,7 @@ export default function ProdutosPage() {
 
   const tipoProduto = form.watch("tipo");
 
-  // Função de CRIAR produto
+  // Função de CRIAR
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const dadosParaSalvar = {
@@ -186,12 +194,9 @@ export default function ProdutosPage() {
     }
   }
   
-  // --- ATUALIZADO: NOVA FUNÇÃO PARA EDITAR PRODUTO ---
+  // Função de EDITAR
   async function onEditSubmit(values: z.infer<typeof editFormSchema>) {
-    if (!produtoParaEditar) {
-      console.error("Nenhum produto selecionado para edição.");
-      return;
-    }
+    if (!produtoParaEditar) return;
 
     try {
       const docRef = doc(db, "produtos", produtoParaEditar.id);
@@ -207,9 +212,22 @@ export default function ProdutosPage() {
 
     } catch (error) {
       console.error("Erro ao atualizar produto: ", error);
-      alert("Erro ao atualizar produto. Verifique o console.");
+      alert("Erro ao atualizar produto.");
     }
   }
+
+  // --- ATUALIZADO: Função de EXCLUIR ---
+  const handleDeleteProduto = async (produto: Produto) => {
+    if (confirm(`Tem certeza que deseja excluir "${produto.nome}"? Isso não pode ser desfeito.`)) {
+      try {
+        await deleteDoc(doc(db, "produtos", produto.id));
+        console.log("Produto excluído:", produto.id);
+      } catch (error) {
+        console.error("Erro ao excluir:", error);
+        alert("Erro ao excluir produto.");
+      }
+    }
+  };
 
   // Abre modal de Relatório
   const handleVerRelatorio = async (produto: Produto) => {
@@ -246,10 +264,9 @@ export default function ProdutosPage() {
     }
   };
   
-  // --- ATUALIZADO: NOVA FUNÇÃO PARA ABRIR MODAL DE EDIÇÃO ---
+  // Abre modal de Edição
   const handleEditarProduto = (produto: Produto) => {
     setProdutoParaEditar(produto);
-    // Preenche o formulário de edição com os valores atuais do produto
     editForm.reset({
       nome: produto.nome,
       precoVenda: produto.precoVenda,
@@ -389,7 +406,7 @@ export default function ProdutosPage() {
         </Dialog>
       </div>
 
-      {/* --- TABELA ATUALIZADA COM BOTÃO DE RELATÓRIO --- */}
+      {/* --- TABELA DE PRODUTOS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -410,15 +427,18 @@ export default function ProdutosPage() {
                 <TableCell>{produto.tipo === 'peca' ? produto.estoqueAtual : 'N/A'}</TableCell>
                 <TableCell>{produto.precoCusto?.toFixed(2)}</TableCell>
                 <TableCell>{produto.precoVenda.toFixed(2)}</TableCell>
-                {/* --- ATUALIZADO: Botão de Editar adicionado --- */}
-                <TableCell>
-                  <Button variant="ghost" size="sm" onClick={() => handleEditarProduto(produto)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Editar
+                
+                {/* --- AÇÕES --- */}
+                <TableCell className="flex gap-2">
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarProduto(produto)} title="Editar">
+                    <Edit className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleVerRelatorio(produto)}>
-                    <Search className="h-4 w-4 mr-2" />
-                    Relatório
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleVerRelatorio(produto)} title="Relatório">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                  {/* Botão de Excluir (Destructive) */}
+                  <Button variant="destructive" size="icon-sm" onClick={() => handleDeleteProduto(produto)} title="Excluir">
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </TableCell>
               </TableRow>
@@ -427,7 +447,7 @@ export default function ProdutosPage() {
         </Table>
       </div>
 
-      {/* --- MODAL DE RELATÓRIO (Renomeado) --- */}
+      {/* --- MODAL DE RELATÓRIO --- */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -458,7 +478,7 @@ export default function ProdutosPage() {
         </DialogContent>
       </Dialog>
       
-      {/* --- ATUALIZADO: NOVO MODAL DE EDIÇÃO --- */}
+      {/* --- MODAL DE EDIÇÃO --- */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>

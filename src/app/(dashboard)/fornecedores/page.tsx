@@ -7,10 +7,21 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importar 'query', 'where' e 'Query'
-import { collection, addDoc, onSnapshot, query, where, Query } from "firebase/firestore"; 
+// ATUALIZADO: Importações para Edição e Exclusão
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  Query, 
+  doc, 
+  updateDoc, 
+  deleteDoc 
+} from "firebase/firestore"; 
+// ATUALIZADO: Ícones
+import { Edit, Trash2 } from "lucide-react";
 
-// ATUALIZADO: Importar hooks de autenticação
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -49,7 +60,7 @@ interface Fornecedor {
   telefone?: string;
   cnpj?: string;
   vendedor?: string; 
-  ownerId?: string; // Campo de segurança
+  ownerId?: string;
 }
 
 const formSchema = z.object({
@@ -61,13 +72,17 @@ const formSchema = z.object({
 
 export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // --- NOVOS STATES PARA EDIÇÃO ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [fornecedorParaEditar, setFornecedorParaEditar] = useState<Fornecedor | null>(null);
+
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
-  // Pega o 'userData' (que tem o ID) e o 'authLoading'
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // --- GUARDIÃO DE ROTA ---
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -75,7 +90,6 @@ export default function FornecedoresPage() {
       </div>
     );
   }
-  // Se não estiver logado, redireciona
   if (!userData) { 
     router.push('/login');
     return (
@@ -84,10 +98,8 @@ export default function FornecedoresPage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
   
-  // --- useEffect ATUALIZADO ---
-  // (Admin vê todos, Operador vê apenas os seus)
+  // --- BUSCA DE DADOS ---
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
@@ -96,10 +108,8 @@ export default function FornecedoresPage() {
       let q: Query;
 
       if (isAdmin) {
-        // Admin vê TUDO
         q = query(fornecedoresRef);
       } else {
-        // Operador vê SÓ O DELE
         q = query(fornecedoresRef, where("ownerId", "==", userData.id));
       }
       
@@ -116,8 +126,9 @@ export default function FornecedoresPage() {
 
       return () => unsub();
     }
-  }, [userData]); // 3. Roda de novo se o usuário (userData) mudar
+  }, [userData]);
 
+  // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -128,8 +139,17 @@ export default function FornecedoresPage() {
     },
   });
 
-  // --- onSubmit ATUALIZADO ---
-  // (Agora salva o ownerId)
+  const editForm = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      nome: "",
+      telefone: "",
+      cnpj: "",
+      vendedor: "",
+    },
+  });
+
+  // --- FUNÇÃO CRIAR ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!userData) {
       alert("Erro: Usuário não autenticado.");
@@ -137,23 +157,64 @@ export default function FornecedoresPage() {
     }
 
     try {
-      // 1. Monta o documento com o ownerId
       const docParaSalvar = {
         ...values,
-        ownerId: userData.id // AQUI ESTÁ A MUDANÇA
+        ownerId: userData.id
       };
       
-      // 2. Salva na coleção "fornecedores"
-      const docRef = await addDoc(collection(db, "fornecedores"), docParaSalvar);
+      await addDoc(collection(db, "fornecedores"), docParaSalvar);
       
-      console.log("Fornecedor salvo com ID: ", docRef.id);
       form.reset();
       setIsModalOpen(false);
-
     } catch (error) {
       console.error("Erro ao salvar fornecedor: ", error);
     }
   }
+
+  // --- FUNÇÃO EDITAR ---
+  const handleEditarFornecedor = (fornecedor: Fornecedor) => {
+    setFornecedorParaEditar(fornecedor);
+    editForm.reset({
+      nome: fornecedor.nome,
+      telefone: fornecedor.telefone || "",
+      cnpj: fornecedor.cnpj || "",
+      vendedor: fornecedor.vendedor || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  async function onEditSubmit(values: z.infer<typeof formSchema>) {
+    if (!fornecedorParaEditar) return;
+
+    try {
+      const docRef = doc(db, "fornecedores", fornecedorParaEditar.id);
+      await updateDoc(docRef, {
+        nome: values.nome,
+        telefone: values.telefone,
+        cnpj: values.cnpj,
+        vendedor: values.vendedor,
+      });
+
+      console.log("Fornecedor atualizado!");
+      setIsEditModalOpen(false);
+      setFornecedorParaEditar(null);
+    } catch (error) {
+      console.error("Erro ao atualizar fornecedor: ", error);
+      alert("Erro ao atualizar fornecedor.");
+    }
+  }
+
+  // --- FUNÇÃO EXCLUIR ---
+  const handleDeleteFornecedor = async (fornecedor: Fornecedor) => {
+    if (confirm(`Tem certeza que deseja excluir o fornecedor "${fornecedor.nome}"?`)) {
+      try {
+        await deleteDoc(doc(db, "fornecedores", fornecedor.id));
+      } catch (error) {
+        console.error("Erro ao excluir:", error);
+        alert("Erro ao excluir fornecedor. Verifique se você tem permissão.");
+      }
+    }
+  };
 
   return (
     <div>
@@ -264,12 +325,90 @@ export default function FornecedoresPage() {
                 <TableCell>{fornecedor.vendedor}</TableCell>
                 <TableCell>{fornecedor.telefone}</TableCell>
                 <TableCell>{fornecedor.cnpj}</TableCell>
-                <TableCell>{/* TODO: Botões de Editar/Excluir */}</TableCell>
+                <TableCell className="flex gap-2">
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarFornecedor(fornecedor)}>
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button variant="destructive" size="icon-sm" onClick={() => handleDeleteFornecedor(fornecedor)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* --- MODAL DE EDIÇÃO --- */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Editar Fornecedor</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+              <FormField
+                  control={editForm.control}
+                  name="nome"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome da Empresa</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={editForm.control}
+                  name="vendedor"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome do Vendedor (Contato)</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="telefone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Telefone / WhatsApp</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="cnpj"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>CNPJ</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              <DialogFooter>
+                <Button type="submit" disabled={editForm.formState.isSubmitting}>
+                  {editForm.formState.isSubmitting ? "Salvando..." : "Salvar Alterações"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
