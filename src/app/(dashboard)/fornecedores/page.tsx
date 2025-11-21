@@ -5,9 +5,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importações para Edição e Exclusão
 import { 
   collection, 
   addDoc, 
@@ -19,13 +17,11 @@ import {
   updateDoc, 
   deleteDoc 
 } from "firebase/firestore"; 
-// ATUALIZADO: Ícones
 import { Edit, Trash2 } from "lucide-react";
-
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
-// Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -72,106 +68,71 @@ const formSchema = z.object({
 
 export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // --- NOVOS STATES PARA EDIÇÃO ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [fornecedorParaEditar, setFornecedorParaEditar] = useState<Fornecedor | null>(null);
-
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // --- GUARDIÃO DE ROTA ---
   if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        Carregando permissões...
-      </div>
-    );
+    return <div className="flex h-screen w-full items-center justify-center">Carregando permissões...</div>;
   }
   if (!userData) { 
     router.push('/login');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Redirecionando...
-       </div>
-    );
+    return null;
   }
   
-  // --- BUSCA DE DADOS ---
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       const fornecedoresRef = collection(db, "fornecedores");
-
       let q: Query;
-
       if (isAdmin) {
         q = query(fornecedoresRef);
       } else {
         q = query(fornecedoresRef, where("ownerId", "==", userData.id));
       }
-      
       const unsub = onSnapshot(q, (querySnapshot) => {
         const listaDeFornecedores: Fornecedor[] = [];
         querySnapshot.forEach((doc) => {
-          listaDeFornecedores.push({
-            id: doc.id,
-            ...doc.data()
-          } as Fornecedor);
+          listaDeFornecedores.push({ id: doc.id, ...doc.data() } as Fornecedor);
         });
         setFornecedores(listaDeFornecedores); 
       });
-
       return () => unsub();
     }
   }, [userData]);
 
-  // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      nome: "",
-      telefone: "",
-      cnpj: "",
-      vendedor: "",
-    },
+    defaultValues: { nome: "", telefone: "", cnpj: "", vendedor: "" },
   });
 
   const editForm = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      nome: "",
-      telefone: "",
-      cnpj: "",
-      vendedor: "",
-    },
+    defaultValues: { nome: "", telefone: "", cnpj: "", vendedor: "" },
   });
 
-  // --- FUNÇÃO CRIAR ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!userData) {
-      alert("Erro: Usuário não autenticado.");
+      toast.error("Erro: Usuário não autenticado.");
       return;
     }
 
     try {
-      const docParaSalvar = {
-        ...values,
-        ownerId: userData.id
-      };
-      
+      const docParaSalvar = { ...values, ownerId: userData.id };
       await addDoc(collection(db, "fornecedores"), docParaSalvar);
       
+      toast.success("Fornecedor cadastrado!");
       form.reset();
       setIsModalOpen(false);
     } catch (error) {
       console.error("Erro ao salvar fornecedor: ", error);
+      toast.error("Erro ao salvar fornecedor.");
     }
   }
 
-  // --- FUNÇÃO EDITAR ---
   const handleEditarFornecedor = (fornecedor: Fornecedor) => {
     setFornecedorParaEditar(fornecedor);
     editForm.reset({
@@ -195,23 +156,23 @@ export default function FornecedoresPage() {
         vendedor: values.vendedor,
       });
 
-      console.log("Fornecedor atualizado!");
+      toast.success("Fornecedor atualizado!");
       setIsEditModalOpen(false);
       setFornecedorParaEditar(null);
     } catch (error) {
       console.error("Erro ao atualizar fornecedor: ", error);
-      alert("Erro ao atualizar fornecedor.");
+      toast.error("Erro ao atualizar.");
     }
   }
 
-  // --- FUNÇÃO EXCLUIR ---
   const handleDeleteFornecedor = async (fornecedor: Fornecedor) => {
     if (confirm(`Tem certeza que deseja excluir o fornecedor "${fornecedor.nome}"?`)) {
       try {
         await deleteDoc(doc(db, "fornecedores", fornecedor.id));
+        toast.success("Fornecedor excluído.");
       } catch (error) {
         console.error("Erro ao excluir:", error);
-        alert("Erro ao excluir fornecedor. Verifique se você tem permissão.");
+        toast.error("Erro ao excluir.");
       }
     }
   };
@@ -220,7 +181,6 @@ export default function FornecedoresPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Fornecedores</h1>
-        
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
             <Button>Adicionar Novo Fornecedor</Button>
@@ -228,79 +188,58 @@ export default function FornecedoresPage() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Adicionar Novo Fornecedor</DialogTitle>
-              <DialogDescription>
-                Preencha as informações do novo fornecedor.
-              </DialogDescription>
             </DialogHeader>
-
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                
                 <FormField
                   control={form.control}
                   name="nome"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome da Empresa</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Auto Peças Sergipe" {...field} />
-                      </FormControl>
+                      <FormControl><Input placeholder="Ex: Auto Peças Sergipe" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                
                  <FormField
                   control={form.control}
                   name="vendedor"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Carlos" {...field} />
-                      </FormControl>
+                      <FormControl><Input placeholder="Ex: Carlos" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="telefone"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Telefone / WhatsApp</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: 79 99999-8888" {...field} />
-                      </FormControl>
+                      <FormControl><Input placeholder="Ex: 79 99999-8888" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="cnpj"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>CNPJ</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Opcional" {...field} />
-                      </FormControl>
+                      <FormControl><Input placeholder="Opcional" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <DialogFooter>
-                  <Button 
-                    type="submit" 
-                    disabled={form.formState.isSubmitting}
-                  >
+                  <Button type="submit" disabled={form.formState.isSubmitting}>
                     {form.formState.isSubmitting ? "Salvando..." : "Salvar Fornecedor"}
                   </Button>
                 </DialogFooter>
-
               </form>
             </Form>
           </DialogContent>
@@ -339,7 +278,7 @@ export default function FornecedoresPage() {
         </Table>
       </div>
 
-      {/* --- MODAL DE EDIÇÃO --- */}
+      {/* Modal de Edição */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -353,9 +292,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome da Empresa</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -366,9 +303,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -379,9 +314,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Telefone / WhatsApp</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -392,9 +325,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>CNPJ</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -408,7 +339,6 @@ export default function FornecedoresPage() {
           </Form>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

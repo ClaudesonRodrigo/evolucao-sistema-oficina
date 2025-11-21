@@ -1,9 +1,10 @@
-// src/app/layout.tsx (O Layout Raiz CORRIGIDO)
+// src/app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-// 1. Importe o nosso provedor
 import { AuthProvider } from "@/context/AuthContext";
+// 1. Importação do Toaster
+import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,10 +21,10 @@ export default function RootLayout({
   return (
     <html lang="pt-br">
       <body className={inter.className}>
-        {/* 2. Envolva APENAS com o AuthProvider */}
-        {/* O MainLayout NÃO deve estar aqui */}
         <AuthProvider>
           {children}
+          {/* 2. Componente Toaster adicionado aqui */}
+          <Toaster />
         </AuthProvider>
       </body>
     </html>

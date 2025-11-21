@@ -5,7 +5,6 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// ATUALIZADO: Importar deleteDoc e doc
 import {
   collection,
   onSnapshot,
@@ -20,11 +19,12 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import Link from "next/link";
-
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+// Importar toast
+import { toast } from "sonner";
 
-// --- Importações dos componentes Shadcn ---
+// Importações dos componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -74,7 +74,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// --- Tipos de Dados (Interfaces) ---
 interface Cliente {
   id: string;
   nome: string;
@@ -93,7 +92,6 @@ interface Carro {
   placa: string;
   clienteId: string;
 }
-
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
@@ -105,7 +103,6 @@ interface OrdemDeServico {
   ownerId?: string; 
 }
 
-// --- Schema de Validação ZOD ---
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
   veiculoPlaca: z.string().min(3, "Informe a placa."),
@@ -132,37 +129,23 @@ export default function OsPage() {
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
-  
   const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
-  
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- GUARDIÃO DE ROTA ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
   if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        Carregando permissões...
-      </div>
-    );
+    return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
   }
   if (!userData) { 
     router.push('/login');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Redirecionando...
-       </div>
-    );
+    return null;
   }
 
-  // --- Efeito para Buscar TODOS os dados ---
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
-      
-      // 1. Lógica de Busca de OS
       let qOS: Query;
       const osRef = collection(db, "ordensDeServico");
       
@@ -174,25 +157,17 @@ export default function OsPage() {
       
       const unsubOS = onSnapshot(qOS, (snapshot) => {
         setOrdensDeServico(
-          snapshot.docs.map(
-            (doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)
-          )
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico))
         );
       });
 
-      // 2. Busca de Clientes
       const qClientes = query(collection(db, "clientes"));
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-        setClientes(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
-        );
+        setClientes(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente)));
       });
       
-      // 3. Busca Produtos
       const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
-        setProdutos(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
-        );
+        setProdutos(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto)));
       });
       
       return () => {
@@ -203,7 +178,6 @@ export default function OsPage() {
     }
   }, [userData]);
 
-  // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
     defaultValues: {
@@ -221,32 +195,22 @@ export default function OsPage() {
     name: "itens",
   });
 
-  // --- Efeito para buscar carros quando o cliente muda ---
   const clienteIdSelecionado = form.watch("clienteId");
 
   useEffect(() => {
     if (clienteIdSelecionado) {
       form.setValue("veiculoPlaca", "");
       form.setValue("veiculoModelo", "");
-
-      const q = query(
-        collection(db, "carros"),
-        where("clienteId", "==", clienteIdSelecionado)
-      );
-
+      const q = query(collection(db, "carros"), where("clienteId", "==", clienteIdSelecionado));
       const unsub = onSnapshot(q, (snapshot) => {
-        setVeiculosCliente(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Carro))
-        );
+        setVeiculosCliente(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Carro)));
       });
-
       return () => unsub();
     } else {
       setVeiculosCliente([]);
     }
   }, [clienteIdSelecionado, form]);
 
-  // --- Função para preencher dados ao selecionar um carro ---
   const handleCarroSelecionado = (carroId: string) => {
     const carro = veiculosCliente.find((c) => c.id === carroId);
     if (carro) {
@@ -255,18 +219,13 @@ export default function OsPage() {
     }
   };
 
-
-  // --- Função adicionarProduto ---
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
-
     if (itemIndex > -1) {
       const item = fields[itemIndex];
       const novaQtde = item.qtde + 1;
       if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
-        alert(
-          `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
-        );
+        toast.warning(`Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`);
         return;
       }
       update(itemIndex, { ...item, qtde: novaQtde });
@@ -284,7 +243,6 @@ export default function OsPage() {
     setIsComboboxOpen(false);
   };
 
-  // --- Cálculos de Total ---
   const watchedItens = form.watch("itens");
   const valorTotalOS = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0; 
@@ -300,50 +258,34 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
-    
     if (!userData) {
-      alert("Erro: Usuário não autenticado.");
+      toast.error("Erro: Usuário não autenticado.");
       return;
     }
 
     try {
       let q: Query;
       const osRef = collection(db, "ordensDeServico");
-      
       if (userData.role === 'admin') {
-         q = query(
-          osRef,
-          where("clienteId", "==", values.clienteId),
-          where("status", "==", "aberta")
-         );
+         q = query(osRef, where("clienteId", "==", values.clienteId), where("status", "==", "aberta"));
       } else {
-         q = query(
-          osRef,
-          where("clienteId", "==", values.clienteId),
-          where("status", "==", "aberta"),
-          where("ownerId", "==", userData.id) 
-         );
+         q = query(osRef, where("clienteId", "==", values.clienteId), where("status", "==", "aberta"), where("ownerId", "==", userData.id));
       }
-      
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
-        alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto.");
+        toast.warning("Este cliente já possui uma Ordem de Serviço em aberto.");
         return; 
       }
     } catch (error) {
-      console.error("Erro ao verificar OS existente:", error);
-      alert("Erro ao verificar OS existente. Tente novamente.");
+      console.error("Erro ao verificar OS:", error);
+      toast.error("Erro ao verificar OS.");
       return;
     }
 
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
-    if (!clienteSelecionado) {
-      console.error("Cliente não encontrado");
-      return;
-    }
+    if (!clienteSelecionado) return;
 
     const novaOSParaEnvio = {
       numeroOS: Math.floor(Math.random() * 10000) + 1,
@@ -371,28 +313,23 @@ export default function OsPage() {
     try {
       const response = await fetch('/.netlify/functions/criarOS', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          novaOS: novaOSParaEnvio, 
-          itens: values.itens,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ novaOS: novaOSParaEnvio, itens: values.itens }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Erro desconhecido ao salvar OS");
+        throw new Error(result.error || "Erro desconhecido");
       }
 
-      console.log("OS salva pela Netlify Function!", result.message);
+      toast.success(`OS #${result.numeroOS || 'criada'} salva com sucesso!`);
       form.reset();
       setIsModalOpen(false);
 
     } catch (error: any) {
-      console.error("Erro ao chamar a Netlify Function criarOS: ", error);
-      alert("Erro ao salvar: " + error.message);
+      console.error("Erro Netlify Function:", error);
+      toast.error("Erro ao salvar: " + error.message);
     }
   }
 
@@ -407,14 +344,10 @@ export default function OsPage() {
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Criar Nova Ordem de Serviço</DialogTitle>
-              <DialogDescription>
-                Preencha as informações do cliente, veículo e os serviços/peças.
-              </DialogDescription>
+              <DialogDescription>Preencha as informações.</DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                
-                {/* --- SEÇÃO DADOS DO CLIENTE --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -423,16 +356,10 @@ export default function OsPage() {
                       <FormItem>
                         <FormLabel>Cliente</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione um cliente" />
-                            </SelectTrigger>
-                          </FormControl>
+                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
                           <SelectContent>
                             {clientes.map((cliente) => (
-                              <SelectItem key={cliente.id} value={cliente.id}>
-                                {cliente.nome}
-                              </SelectItem>
+                              <SelectItem key={cliente.id} value={cliente.id}>{cliente.nome}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -440,40 +367,28 @@ export default function OsPage() {
                       </FormItem>
                     )}
                   />
-
-                  {/* Seleção de Carro Cadastrado */}
                   {veiculosCliente.length > 0 && (
                      <FormItem>
-                        <FormLabel>Veículo Cadastrado (Opcional)</FormLabel>
+                        <FormLabel>Veículo Cadastrado</FormLabel>
                         <Select onValueChange={handleCarroSelecionado}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione da lista..." />
-                            </SelectTrigger>
-                          </FormControl>
+                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
                           <SelectContent>
                             {veiculosCliente.map((carro) => (
-                              <SelectItem key={carro.id} value={carro.id}>
-                                {carro.modelo} - {carro.placa}
-                              </SelectItem>
+                              <SelectItem key={carro.id} value={carro.id}>{carro.modelo} - {carro.placa}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </FormItem>
                   )}
                 </div>
-
-                {/* --- SEÇÃO DADOS DO VEÍCULO --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="veiculoPlaca"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Placa do Veículo</FormLabel>
-                        <FormControl>
-                          <Input placeholder="ABC-1234" {...field} />
-                        </FormControl>
+                        <FormLabel>Placa</FormLabel>
+                        <FormControl><Input placeholder="ABC-1234" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -483,30 +398,21 @@ export default function OsPage() {
                     name="veiculoModelo"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Modelo do Veículo</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Ex: Toyota Corolla" {...field} />
-                        </FormControl>
+                        <FormLabel>Modelo</FormLabel>
+                        <FormControl><Input placeholder="Ex: Toyota Corolla" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-
-                {/* --- SEÇÃO OBSERVAÇÕES E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="servicosDescricao"
                     render={({ field }) => (
                       <FormItem className="md:col-span-2">
-                        <FormLabel>Descrição dos Serviços / Observações</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Descreva os serviços a serem realizados..."
-                            {...field}
-                          />
-                        </FormControl>
+                        <FormLabel>Descrição / Observações</FormLabel>
+                        <FormControl><Textarea placeholder="Detalhes..." {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -517,16 +423,12 @@ export default function OsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Garantia (dias)</FormLabel>
-                        <FormControl>
-                          <Input type="number" placeholder="Ex: 90" {...field} />
-                        </FormControl>
+                        <FormControl><Input type="number" placeholder="90" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-
-                {/* --- SEÇÃO ADICIONAR ITENS --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -543,17 +445,10 @@ export default function OsPage() {
                           <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
                           <CommandGroup>
                             {produtos.map((produto) => (
-                              <CommandItem
-                                key={produto.id}
-                                value={produto.nome}
-                                onSelect={() => { adicionarProduto(produto); }}
-                              >
-                                <Check
-                                  className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
-                                />
+                              <CommandItem key={produto.id} value={produto.nome} onSelect={() => { adicionarProduto(produto); }}>
+                                <Check className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")} />
                                 {produto.nome} ({produto.tipo})
-                                {produto.tipo === "peca" &&
-                                  ` - Estoque: ${produto.estoqueAtual}`}
+                                {produto.tipo === "peca" && ` - Estoque: ${produto.estoqueAtual}`}
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -563,8 +458,6 @@ export default function OsPage() {
                   </Popover>
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
-
-                {/* --- TABELA DE ITENS --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -578,9 +471,7 @@ export default function OsPage() {
                     </TableHeader>
                     <TableBody>
                       {fields.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center">Nenhum item adicionado.</TableCell>
-                        </TableRow>
+                        <TableRow><TableCell colSpan={5} className="text-center">Nenhum item adicionado.</TableCell></TableRow>
                       )}
                       {fields.map((item, index) => (
                         <TableRow key={item.id}>
@@ -597,10 +488,7 @@ export default function OsPage() {
                                   onChange={(e) => {
                                     const novaQtde = parseInt(e.target.value) || 0;
                                     if (item.tipo === "peca" && novaQtde > item.estoqueAtual) {
-                                      form.setError(`itens.${index}.qtde`, {
-                                        type: "manual",
-                                        message: `Max: ${item.estoqueAtual}`,
-                                      });
+                                      form.setError(`itens.${index}.qtde`, { type: "manual", message: `Max: ${item.estoqueAtual}` });
                                     } else {
                                       form.clearErrors(`itens.${index}.qtde`);
                                     }
@@ -623,15 +511,9 @@ export default function OsPage() {
                     </TableBody>
                   </Table>
                 </div>
-                
-                {/* --- TOTAIS E BOTÃO --- */}
                 <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-medium text-gray-600">
-                    Custo Peças: R$ {custoTotalOS.toFixed(2)}
-                  </h2>
-                  <h2 className="text-2xl font-bold">
-                    Total da OS: R$ {valorTotalOS.toFixed(2)}
-                  </h2>
+                  <h2 className="text-lg font-medium text-gray-600">Custo Peças: R$ {custoTotalOS.toFixed(2)}</h2>
+                  <h2 className="text-2xl font-bold">Total da OS: R$ {valorTotalOS.toFixed(2)}</h2>
                 </div>
                 <DialogFooter>
                   <Button type="submit" disabled={form.formState.isSubmitting}>
@@ -644,7 +526,6 @@ export default function OsPage() {
         </Dialog>
       </div>
 
-      {/* --- TABELA DE LISTAGEM DE OS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -662,42 +543,30 @@ export default function OsPage() {
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>
-                  <Link
-                    href={`/os/${os.id}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {os.numeroOS}
-                  </Link>
+                  <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">{os.numeroOS}</Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
                 <TableCell>{os.placaVeiculo}</TableCell>
-                <TableCell>
-                  {new Date(
-                    os.dataAbertura.seconds * 1000
-                  ).toLocaleDateString()}
-                </TableCell>
+                <TableCell>{new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}</TableCell>
                 <TableCell>{os.status}</TableCell>
                 <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
                 <TableCell className="flex items-center">
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/os/${os.id}`}>Ver Detalhes</Link>
                   </Button>
-                  
-                  {/* ATUALIZAÇÃO: Botão de Excluir para Admin */}
                   {userData?.role === 'admin' && (
                     <Button 
                       variant="destructive" 
                       size="sm" 
                       className="ml-2"
                       onClick={async () => {
-                        const confirmacao = confirm(`Tem certeza que deseja excluir a OS #${os.numeroOS}?`);
-                        if (confirmacao) {
+                        if (confirm(`Tem certeza que deseja excluir a OS #${os.numeroOS}?`)) {
                           try {
                              await deleteDoc(doc(db, "ordensDeServico", os.id));
-                             alert("OS excluída com sucesso!");
+                             toast.success("OS excluída com sucesso!");
                           } catch (error) {
                              console.error("Erro ao excluir:", error);
-                             alert("Erro ao excluir OS.");
+                             toast.error("Erro ao excluir OS.");
                           }
                         }
                       }}

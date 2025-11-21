@@ -19,7 +19,9 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns"; 
+import { format } from "date-fns";
+// Importar toast
+import { toast } from "sonner";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -57,7 +59,7 @@ import {
 } from "@/components/ui/form";
 import { Card, CardContent } from "@/components/ui/card";
 
-// --- Interfaces ---
+// Interfaces
 interface Produto {
   id: string; 
   nome: string;
@@ -74,7 +76,6 @@ interface ItemOS {
   precoUnitario: number;
   custoUnitario?: number;
 }
-// --- ATUALIZADO: Interface da OS ---
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
@@ -89,17 +90,15 @@ interface OrdemDeServico {
   custoTotal: number;
   ownerId: string;
   formaPagamento?: string; 
-  descontoAplicado?: number; // % de desconto (ex: 10)
-  valorFinal?: number; // Valor com desconto
+  descontoAplicado?: number; 
+  valorFinal?: number; 
 }
 
-// --- ATUALIZADO: Schema do formulário de pagamento ---
 const paymentSchema = z.object({
   formaPagamento: z.string().min(1, { message: "Selecione uma forma de pagamento." }),
-  descontoPercentual: z.coerce.number().default(0), // Coerce para converter string do select
+  descontoPercentual: z.coerce.number().default(0),
 });
 
-// Opções de desconto
 const discountOptions = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
 export default function CaixaPage() {
@@ -111,44 +110,26 @@ export default function CaixaPage() {
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
   
-  // --- ATUALIZADO: Pega o status de Admin ---
   const isAdmin = userData?.role === 'admin';
 
-  // Guardião de Rota
   if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        Carregando permissões...
-      </div>
-    );
+    return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
   }
   if (!userData) {
     router.push('/login');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Redirecionando...
-       </div>
-    );
+    return null;
   }
 
-  // Busca as OSs
   useEffect(() => {
     if (userData) {
       const osRef = collection(db, "ordensDeServico");
-      
       let q: Query;
-      
-      // Filtro base: Status "aberta"
       const statusFilter = where("status", "==", "aberta");
-
       if (isAdmin) {
-        // Admin vê todas as OS abertas
         q = query(osRef, statusFilter);
       } else {
-        // Operador vê SÓ AS DELE que estão abertas
         q = query(osRef, statusFilter, where("ownerId", "==", userData.id));
       }
-      
       const unsub = onSnapshot(q, (querySnapshot) => {
         const listaOS: OrdemDeServico[] = [];
         querySnapshot.forEach((doc) => {
@@ -156,83 +137,66 @@ export default function CaixaPage() {
         });
         setOrdensAbertas(listaOS); 
       });
-
       return () => unsub();
     }
-  }, [userData, isAdmin]); // Adicionado isAdmin
+  }, [userData, isAdmin]);
 
-  // --- ATUALIZADO: useForm com novo default ---
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: {
-      formaPagamento: "",
-      descontoPercentual: 0,
-    },
+    defaultValues: { formaPagamento: "", descontoPercentual: 0 },
   });
   
-  // --- ATUALIZADO: Observa o valor do desconto ---
   const desconto = form.watch("descontoPercentual");
-  
-  // Calcula o valor final baseado no OS selecionada e no desconto do formulário
-  const valorFinal = osSelecionada
-    ? osSelecionada.valorTotal * (1 - (desconto || 0) / 100)
-    : 0;
+  const valorFinal = osSelecionada ? osSelecionada.valorTotal * (1 - (desconto || 0) / 100) : 0;
 
-
-  // Função para abrir o modal de Detalhes
   const handleVerDetalhes = (os: OrdemDeServico) => {
     setOsSelecionada(os);
     setIsModalOpen(true);
   };
 
-  // Função para abrir o modal de Pagamento
   const handleAbrirPagamento = (os: OrdemDeServico) => {
     setOsSelecionada(os);
-    setIsModalOpen(false); // Fecha o modal de detalhes
-    setIsPaymentModalOpen(true); // Abre o modal de pagamento
-    form.reset({ formaPagamento: "", descontoPercentual: 0 }); // Reseta o form
+    setIsModalOpen(false);
+    setIsPaymentModalOpen(true);
+    form.reset({ formaPagamento: "", descontoPercentual: 0 });
   };
 
-  // --- ATUALIZADO: Função para REGISTRAR o pagamento ---
   async function handleRegistrarPagamento(values: z.infer<typeof paymentSchema>) {
     if (!osSelecionada || !userData) {
-      alert("Erro: OS não selecionada ou usuário não autenticado.");
+      toast.error("Erro: OS ou usuário inválido.");
       return;
     }
 
-    // Calcula o valor final novamente para segurança
     const valorFinalCalculado = osSelecionada.valorTotal * (1 - (values.descontoPercentual || 0) / 100);
 
     try {
-      // 1. Atualiza a Ordem de Serviço
       const osDocRef = doc(db, "ordensDeServico", osSelecionada.id);
       await updateDoc(osDocRef, {
         status: "finalizada",
         formaPagamento: values.formaPagamento,
         dataFechamento: Timestamp.now(),
-        descontoAplicado: values.descontoPercentual, // Salva o %
-        valorFinal: valorFinalCalculado, // Salva o valor com desconto
+        descontoAplicado: values.descontoPercentual,
+        valorFinal: valorFinalCalculado,
       });
 
-      // 2. Cria a Movimentação Financeira (Entrada no Caixa)
       await addDoc(collection(db, "movimentacoes"), {
         data: Timestamp.now(),
         tipo: "entrada",
         descricao: `Venda OS Nº ${osSelecionada.numeroOS}`,
-        valor: valorFinalCalculado, // <-- Registra o valor LÍQUIDO (com desconto)
-        custo: osSelecionada.custoTotal, // O custo das peças não muda
+        valor: valorFinalCalculado,
+        custo: osSelecionada.custoTotal,
         formaPagamento: values.formaPagamento,
-        ownerId: userData.id, // ID de quem finalizou a venda
-        referenciaId: osSelecionada.id, // ID da OS
+        ownerId: userData.id,
+        referenciaId: osSelecionada.id,
       });
 
-      console.log("Venda finalizada com sucesso!");
+      toast.success("Venda finalizada com sucesso!");
       setIsPaymentModalOpen(false);
       setOsSelecionada(null);
 
     } catch (error) {
       console.error("Erro ao registrar pagamento: ", error);
-      alert("Erro ao registrar pagamento. Verifique o console.");
+      toast.error("Erro ao finalizar pagamento.");
     }
   }
 
@@ -263,19 +227,13 @@ export default function CaixaPage() {
               {ordensAbertas.map((os) => (
                 <TableRow key={os.id}>
                   <TableCell className="font-medium">{os.numeroOS}</TableCell>
-                  <TableCell>
-                    {format(new Date(os.dataAbertura.seconds * 1000), 'dd/MM/yyyy')}
-                  </TableCell>
+                  <TableCell>{format(new Date(os.dataAbertura.seconds * 1000), 'dd/MM/yyyy')}</TableCell>
                   <TableCell>{os.nomeCliente}</TableCell>
                   <TableCell>{os.veiculoPlaca}</TableCell>
                   <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
                   <TableCell>
-                    <Button variant="outline" size="sm" onClick={() => handleVerDetalhes(os)} className="mr-2">
-                      Ver Detalhes
-                    </Button>
-                    <Button size="sm" onClick={() => handleAbrirPagamento(os)}>
-                      Registrar Pagamento
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleVerDetalhes(os)} className="mr-2">Ver Detalhes</Button>
+                    <Button size="sm" onClick={() => handleAbrirPagamento(os)}>Registrar Pagamento</Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -284,35 +242,27 @@ export default function CaixaPage() {
         </div>
       )}
 
-      {/* --- MODAL DE DETALHES (ATUALIZADO PARA MOSTRAR DESCONTO) --- */}
+      {/* Modal de Detalhes */}
       {osSelecionada && (
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle className="text-2xl">Detalhes da OS: {osSelecionada.numeroOS}</DialogTitle>
-              <DialogDescription className="text-lg font-semibold">
-                Rodrigo Skaps
-              </DialogDescription>
+              <DialogDescription className="text-lg font-semibold">Rodrigo Skaps</DialogDescription>
             </DialogHeader>
-
-            <div className="grid grid-cols-2 gap-4 py-4">
-              {/* Coluna 1: Cliente e Veículo */}
+            {/* ... (Detalhes da OS) ... */}
+             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
                 <h4 className="font-semibold">Cliente</h4>
                 <p>{osSelecionada.nomeCliente}</p>
-                
                 <h4 className="font-semibold mt-4">Veículo</h4>
                 <p>{osSelecionada.veiculoModelo} - {osSelecionada.veiculoPlaca}</p>
               </div>
-
-              {/* Coluna 2: Datas e Status */}
               <div className="space-y-2">
                 <h4 className="font-semibold">Data de Abertura</h4>
                 <p>{format(new Date(osSelecionada.dataAbertura.seconds * 1000), 'dd/MM/yyyy HH:mm')}</p>
-                
                 <h4 className="font-semibold mt-4">Status</h4>
                 <p className="capitalize font-bold">{osSelecionada.status}</p>
-                
                 {osSelecionada.status === 'finalizada' && osSelecionada.formaPagamento && (
                   <>
                     <h4 className="font-semibold mt-4">Forma de Pagamento</h4>
@@ -321,9 +271,7 @@ export default function CaixaPage() {
                 )}
               </div>
             </div>
-
-            {/* Itens da OS */}
-            <h4 className="font-semibold mb-2">Itens e Serviços</h4>
+             <h4 className="font-semibold mb-2">Itens e Serviços</h4>
             <div className="rounded-md border max-h-48 overflow-y-auto">
               <Table>
                 <TableHeader>
@@ -346,56 +294,37 @@ export default function CaixaPage() {
                 </TableBody>
               </Table>
             </div>
-            
-            {/* --- ATUALIZADO: Lógica de Total no Modal de Detalhes --- */}
             <div className="text-right mt-4">
               {osSelecionada.status === 'finalizada' && osSelecionada.descontoAplicado && osSelecionada.descontoAplicado > 0 ? (
                 <>
-                  <p className="text-lg line-through text-gray-500">
-                    Subtotal: R$ {osSelecionada.valorTotal.toFixed(2)}
-                  </p>
-                  <p className="text-lg text-red-600">
-                    Desconto: -R$ {(osSelecionada.valorTotal - (osSelecionada.valorFinal || osSelecionada.valorTotal)).toFixed(2)} ({osSelecionada.descontoAplicado}%)
-                  </p>
-                  <h3 className="text-2xl font-bold">
-                    Valor Final: R$ {osSelecionada.valorFinal?.toFixed(2)}
-                  </h3>
+                  <p className="text-lg line-through text-gray-500">Subtotal: R$ {osSelecionada.valorTotal.toFixed(2)}</p>
+                  <p className="text-lg text-red-600">Desconto: -R$ {(osSelecionada.valorTotal - (osSelecionada.valorFinal || osSelecionada.valorTotal)).toFixed(2)} ({osSelecionada.descontoAplicado}%)</p>
+                  <h3 className="text-2xl font-bold">Valor Final: R$ {osSelecionada.valorFinal?.toFixed(2)}</h3>
                 </>
               ) : (
-                 <h3 className="text-2xl font-bold">
-                  Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}
-                </h3>
+                 <h3 className="text-2xl font-bold">Valor Total: R$ {osSelecionada.valorTotal.toFixed(2)}</h3>
               )}
             </div>
-
             <DialogFooter className="mt-6">
               <Button variant="outline" onClick={() => setIsModalOpen(false)}>Fechar</Button>
               {osSelecionada.status === 'aberta' && (
-                <Button onClick={() => handleAbrirPagamento(osSelecionada)}>
-                  Ir para Pagamento
-                </Button>
+                <Button onClick={() => handleAbrirPagamento(osSelecionada)}>Ir para Pagamento</Button>
               )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
       
-      {/* --- MODAL DE PAGAMENTO (ATUALIZADO) --- */}
+      {/* Modal de Pagamento */}
       {osSelecionada && (
         <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Registrar Pagamento (OS: {osSelecionada.numeroOS})</DialogTitle>
-              {/* Mostra o total original */}
-              <DialogDescription>
-                Valor Original: R$ {osSelecionada.valorTotal.toFixed(2)}
-              </DialogDescription>
+              <DialogDescription>Valor Original: R$ {osSelecionada.valorTotal.toFixed(2)}</DialogDescription>
             </DialogHeader>
-
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleRegistrarPagamento)} className="space-y-6 pt-4">
-                
-                {/* --- CAMPO DE DESCONTO (SÓ PARA ADMIN) --- */}
                 {isAdmin && (
                   <FormField
                     control={form.control}
@@ -404,16 +333,10 @@ export default function CaixaPage() {
                       <FormItem>
                         <FormLabel>Aplicar Desconto (Admin)</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={String(field.value)}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Sem desconto" />
-                            </SelectTrigger>
-                          </FormControl>
+                          <FormControl><SelectTrigger><SelectValue placeholder="Sem desconto" /></SelectTrigger></FormControl>
                           <SelectContent>
                             {discountOptions.map(perc => (
-                              <SelectItem key={perc} value={String(perc)}>
-                                {perc}%
-                              </SelectItem>
+                              <SelectItem key={perc} value={String(perc)}>{perc}%</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -422,7 +345,6 @@ export default function CaixaPage() {
                     )}
                   />
                 )}
-
                 <FormField
                   control={form.control}
                   name="formaPagamento"
@@ -430,11 +352,7 @@ export default function CaixaPage() {
                     <FormItem>
                       <FormLabel>Forma de Pagamento</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione..." />
-                          </SelectTrigger>
-                        </FormControl>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
                         <SelectContent>
                           <SelectItem value="Dinheiro">Dinheiro</SelectItem>
                           <SelectItem value="Pix">Pix</SelectItem>
@@ -446,8 +364,6 @@ export default function CaixaPage() {
                     </FormItem>
                   )}
                 />
-                
-                {/* --- MOSTRA O VALOR FINAL COM DESCONTO --- */}
                 <div className="space-y-2">
                   {desconto > 0 && (
                     <>
@@ -466,14 +382,8 @@ export default function CaixaPage() {
                     <span>R$ {valorFinal.toFixed(2)}</span>
                   </div>
                 </div>
-
                 <DialogFooter>
-                  <Button 
-                    type="submit" 
-                    disabled={form.formState.isSubmitting} 
-                    className="w-full"
-                    size="lg"
-                  >
+                  <Button type="submit" disabled={form.formState.isSubmitting} className="w-full" size="lg">
                     {form.formState.isSubmitting ? "Finalizando..." : "Finalizar Venda"}
                   </Button>
                 </DialogFooter>
@@ -482,7 +392,6 @@ export default function CaixaPage() {
           </DialogContent>
         </Dialog>
       )}
-
     </div>
   );
 }

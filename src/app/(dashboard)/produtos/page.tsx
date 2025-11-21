@@ -5,7 +5,6 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// Importar deleteDoc
 import { 
   collection, 
   addDoc, 
@@ -18,13 +17,13 @@ import {
   deleteDoc 
 } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
-// Importar Trash2
 import { Search, Edit, Trash2 } from "lucide-react"; 
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+// Importar Toast
+import { toast } from "sonner";
 
-// Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,7 +59,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// --- INTERFACES ---
 interface Produto {
   id: string; 
   nome: string;
@@ -77,14 +75,13 @@ interface ItemOS {
   qtde: number;
 }
 
-// --- SCHEMA DE CRIAÇÃO ---
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   codigoSku: z.string().optional(),
   tipo: z.enum(["peca", "servico"]),
-  precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }),
-  precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
-  estoqueAtual: z.coerce.number().int({ message: "O estoque deve ser um número inteiro." }),
+  precoCusto: z.coerce.number().min(0),
+  precoVenda: z.coerce.number().min(0),
+  estoqueAtual: z.coerce.number().int(),
   estoqueMinimo: z.coerce.number().int().min(0).default(3),
   monitorarEstoque: z.string().default("true"), 
 }).refine((data) => {
@@ -97,11 +94,10 @@ const formSchema = z.object({
   path: ["estoqueAtual"],
 });
 
-// --- SCHEMA DE EDIÇÃO (ATUALIZADO COM PREÇO DE CUSTO) ---
 const editFormSchema = z.object({
-  nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
-  precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }), // <-- NOVO
-  precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
+  nome: z.string().min(3),
+  precoCusto: z.coerce.number().min(0),
+  precoVenda: z.coerce.number().min(0),
   estoqueMinimo: z.coerce.number().int().min(0),
   monitorarEstoque: z.string(),
 });
@@ -111,18 +107,15 @@ export default function ProdutosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   
-  // States dos Modais
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   
-  // States para seleção
   const [produtoParaRelatorio, setProdutoParaRelatorio] = useState<Produto | null>(null);
   const [produtoParaEditar, setProdutoParaEditar] = useState<Produto | null>(null);
 
   const [totalVendido, setTotalVendido] = useState<number | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
-  // Guardião de Rota
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -143,7 +136,6 @@ export default function ProdutosPage() {
     );
   }
 
-  // Busca Produtos
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "produtos"), (querySnapshot) => {
       const listaDeProdutos: Produto[] = [];
@@ -158,7 +150,6 @@ export default function ProdutosPage() {
     return () => unsub();
   }, []);
 
-  // Formulário de CRIAÇÃO
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -173,12 +164,11 @@ export default function ProdutosPage() {
     },
   });
   
-  // Formulário de EDIÇÃO
   const editForm = useForm<z.infer<typeof editFormSchema>>({
     resolver: zodResolver(editFormSchema),
     defaultValues: {
       nome: "",
-      precoCusto: 0, // <-- NOVO
+      precoCusto: 0,
       precoVenda: 0,
       estoqueMinimo: 3,
       monitorarEstoque: "true",
@@ -187,7 +177,6 @@ export default function ProdutosPage() {
 
   const tipoProduto = form.watch("tipo");
 
-  // Função de CRIAR
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const dadosParaSalvar = {
@@ -200,15 +189,17 @@ export default function ProdutosPage() {
       const docRef = await addDoc(collection(db, "produtos"), dadosParaSalvar);
       console.log("Produto salvo com ID: ", docRef.id);
       
+      // Toast de sucesso
+      toast.success("Produto criado com sucesso!");
       form.reset();
       setIsModalOpen(false);
 
     } catch (error) {
       console.error("Erro ao salvar produto: ", error);
+      toast.error("Erro ao salvar produto.");
     }
   }
   
-  // Função de EDITAR
   async function onEditSubmit(values: z.infer<typeof editFormSchema>) {
     if (!produtoParaEditar) return;
 
@@ -216,37 +207,36 @@ export default function ProdutosPage() {
       const docRef = doc(db, "produtos", produtoParaEditar.id);
       await updateDoc(docRef, {
         nome: values.nome,
-        precoCusto: values.precoCusto, // <-- ATUALIZA NO BANCO
+        precoCusto: values.precoCusto,
         precoVenda: values.precoVenda,
         estoqueMinimo: values.estoqueMinimo,
         monitorarEstoque: values.monitorarEstoque === "true",
       });
 
-      console.log("Produto atualizado com ID: ", produtoParaEditar.id);
+      // Toast de sucesso
+      toast.success("Produto atualizado!");
       editForm.reset();
       setIsEditModalOpen(false);
       setProdutoParaEditar(null);
 
     } catch (error) {
       console.error("Erro ao atualizar produto: ", error);
-      alert("Erro ao atualizar produto.");
+      toast.error("Erro ao atualizar produto.");
     }
   }
 
-  // Função de EXCLUIR
   const handleDeleteProduto = async (produto: Produto) => {
     if (confirm(`Tem certeza que deseja excluir "${produto.nome}"? Isso não pode ser desfeito.`)) {
       try {
         await deleteDoc(doc(db, "produtos", produto.id));
-        console.log("Produto excluído:", produto.id);
+        toast.success("Produto excluído.");
       } catch (error) {
         console.error("Erro ao excluir:", error);
-        alert("Erro ao excluir produto.");
+        toast.error("Erro ao excluir produto.");
       }
     }
   };
 
-  // Abre modal de Relatório
   const handleVerRelatorio = async (produto: Produto) => {
     setProdutoParaRelatorio(produto);
     setIsReportModalOpen(true);
@@ -276,24 +266,23 @@ export default function ProdutosPage() {
     } catch (error) {
       console.error("Erro ao calcular total vendido: ", error);
       setTotalVendido(0); 
+      toast.error("Erro ao gerar relatório.");
     } finally {
       setLoadingReport(false);
     }
   };
   
-  // Abre modal de Edição
   const handleEditarProduto = (produto: Produto) => {
     setProdutoParaEditar(produto);
     editForm.reset({
       nome: produto.nome,
-      precoCusto: produto.precoCusto || 0, // <-- CARREGA VALOR ATUAL
+      precoCusto: produto.precoCusto || 0,
       precoVenda: produto.precoVenda,
       estoqueMinimo: produto.estoqueMinimo || 3,
       monitorarEstoque: produto.monitorarEstoque === false ? "false" : "true",
     });
     setIsEditModalOpen(true);
   };
-
 
   return (
     <div>
@@ -314,7 +303,6 @@ export default function ProdutosPage() {
 
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                
                 <FormField
                   control={form.control}
                   name="nome"
@@ -329,41 +317,42 @@ export default function ProdutosPage() {
                   )}
                 />
                 
-                <FormField
-                  control={form.control}
-                  name="tipo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo</FormLabel>
-                       <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="tipo"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo</FormLabel>
+                         <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione se é peça ou serviço" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="peca">Peça</SelectItem>
+                            <SelectItem value="servico">Serviço</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="codigoSku"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Código (SKU)</FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione se é peça ou serviço" />
-                          </SelectTrigger>
+                          <Input placeholder="Opcional" {...field} />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="peca">Peça</SelectItem>
-                          <SelectItem value="servico">Serviço</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="codigoSku"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Código (SKU)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Opcional" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                    <FormField
@@ -379,7 +368,6 @@ export default function ProdutosPage() {
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="precoVenda"
@@ -425,7 +413,6 @@ export default function ProdutosPage() {
                         )}
                       />
                     </div>
-                    {/* CAMPO DE MONITORAMENTO NA CRIAÇÃO */}
                     <FormField
                       control={form.control}
                       name="monitorarEstoque"
@@ -433,7 +420,11 @@ export default function ProdutosPage() {
                         <FormItem>
                           <FormLabel>Monitorar Estoque?</FormLabel>
                           <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione..." />
+                              </SelectTrigger>
+                            </FormControl>
                             <SelectContent>
                               <SelectItem value="true">Sim (Avisar se acabar)</SelectItem>
                               <SelectItem value="false">Não (Peça única/usada)</SelectItem>
@@ -454,14 +445,12 @@ export default function ProdutosPage() {
                     {form.formState.isSubmitting ? "Salvando..." : "Salvar Item"}
                   </Button>
                 </DialogFooter>
-
               </form>
             </Form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* --- TABELA DE PRODUTOS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -497,7 +486,6 @@ export default function ProdutosPage() {
                 </TableCell>
                 <TableCell>{produto.precoCusto?.toFixed(2)}</TableCell>
                 <TableCell>{produto.precoVenda.toFixed(2)}</TableCell>
-                
                 <TableCell className="flex gap-2">
                   <Button variant="ghost" size="icon-sm" onClick={() => handleEditarProduto(produto)} title="Editar">
                     <Edit className="h-4 w-4" />
@@ -515,19 +503,14 @@ export default function ProdutosPage() {
         </Table>
       </div>
       
-      {/* --- MODAL DE EDIÇÃO (ATUALIZADO) --- */}
+      {/* Modal de Edição */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Editar Produto</DialogTitle>
-            <DialogDescription>
-              {produtoParaEditar?.nome}
-            </DialogDescription>
           </DialogHeader>
-
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 pt-4">
-              
               <FormField
                 control={editForm.control}
                 name="nome"
@@ -541,10 +524,8 @@ export default function ProdutosPage() {
                   </FormItem>
                 )}
               />
-
-              {/* CAMPO NOVO DE PREÇO DE CUSTO NA EDIÇÃO */}
               <div className="grid grid-cols-2 gap-4">
-                <FormField
+                 <FormField
                   control={editForm.control}
                   name="precoCusto"
                   render={({ field }) => (
@@ -571,8 +552,6 @@ export default function ProdutosPage() {
                   )}
                 />
               </div>
-
-              {/* CAMPOS DE ESTOQUE PARA PEÇAS */}
               {produtoParaEditar?.tipo === 'peca' && (
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -593,12 +572,12 @@ export default function ProdutosPage() {
                     name="monitorarEstoque"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Monitorar Estoque?</FormLabel>
+                        <FormLabel>Monitorar?</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent>
-                            <SelectItem value="true">Sim (Avisar se acabar)</SelectItem>
-                            <SelectItem value="false">Não (Peça única/usada)</SelectItem>
+                            <SelectItem value="true">Sim</SelectItem>
+                            <SelectItem value="false">Não</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -607,22 +586,17 @@ export default function ProdutosPage() {
                   />
                 </div>
               )}
-              
               <DialogFooter>
-                <Button 
-                  type="submit" 
-                  disabled={editForm.formState.isSubmitting}
-                >
+                <Button type="submit" disabled={editForm.formState.isSubmitting}>
                   {editForm.formState.isSubmitting ? "Salvando..." : "Salvar Alterações"}
                 </Button>
               </DialogFooter>
-
             </form>
           </Form>
         </DialogContent>
       </Dialog>
 
-      {/* --- MODAL DE RELATÓRIO (COMPLETO E RESTAURADO) --- */}
+      {/* Modal de Relatório */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -652,7 +626,6 @@ export default function ProdutosPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
