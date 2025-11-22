@@ -6,76 +6,27 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  query, 
-  where, 
-  Query,
-  deleteDoc,
-  doc
+  collection, addDoc, onSnapshot, query, where, Query, deleteDoc, doc
 } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { maskPlate } from "@/lib/masks";
 
-// Componentes Shadcn
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Interfaces
-interface Cliente {
-  id: string;
-  nome: string;
-}
+interface Cliente { id: string; nome: string; }
+interface Carro { id: string; modelo: string; placa: string; ano?: string; cor?: string; clienteId: string; nomeCliente?: string; ownerId: string; }
 
-interface Carro {
-  id: string; 
-  modelo: string;
-  placa: string;
-  ano?: string;
-  cor?: string;
-  clienteId: string;
-  nomeCliente?: string; // Para exibir na tabela
-  ownerId: string;
-}
-
-// Schema de Validação
 const formSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
-  modelo: z.string().min(2, "Informe o modelo do veículo."),
+  modelo: z.string().min(2, "Informe o modelo."),
   placa: z.string().min(7, "A placa deve ter pelo menos 7 caracteres."),
   ano: z.string().optional(),
   cor: z.string().optional(),
@@ -85,100 +36,49 @@ export default function CarrosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [carros, setCarros] = useState<Carro[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Guardião de Rota
-  if (authLoading) {
-    return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
-  }
-  if (!userData) { 
-    router.push('/login');
-    return null;
-  }
+  if (authLoading) return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
+  if (!userData) { router.push('/login'); return null; }
 
-  // Buscar Dados (Carros e Clientes)
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       
-      // 1. Buscar Clientes (Para o Select)
-      const clientesRef = collection(db, "clientes");
-      let qClientes: Query;
-      if (isAdmin) {
-        qClientes = query(clientesRef);
-      } else {
-        qClientes = query(clientesRef, where("ownerId", "==", userData.id));
-      }
-      
-      const unsubClientes = onSnapshot(qClientes, (snapshot) => {
-        setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
-      });
+      // Clientes
+      let qClientes = isAdmin ? query(collection(db, "clientes")) : query(collection(db, "clientes"), where("ownerId", "==", userData.id));
+      const unsubClientes = onSnapshot(qClientes, (snapshot) => setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente))));
 
-      // 2. Buscar Carros (Para a Tabela)
-      const carrosRef = collection(db, "carros");
-      let qCarros: Query;
-      if (isAdmin) {
-        qCarros = query(carrosRef);
-      } else {
-        qCarros = query(carrosRef, where("ownerId", "==", userData.id));
-      }
-
+      // Carros
+      let qCarros = isAdmin ? query(collection(db, "carros")) : query(collection(db, "carros"), where("ownerId", "==", userData.id));
       const unsubCarros = onSnapshot(qCarros, (snapshot) => {
-        const listaCarros: Carro[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          // Tenta encontrar o nome do cliente na lista de clientes carregada
-          // (Nota: isso funciona melhor se clientes já estiver carregado, 
-          // mas para exibição simples resolve)
-          listaCarros.push({ 
-            id: doc.id, 
-            ...data,
-          } as Carro);
-        });
-        setCarros(listaCarros);
+        setCarros(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Carro)));
       });
 
-      return () => {
-        unsubClientes();
-        unsubCarros();
-      };
+      return () => { unsubClientes(); unsubCarros(); };
     }
   }, [userData]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      clienteId: "",
-      modelo: "",
-      placa: "",
-      ano: "",
-      cor: "",
-    },
+    defaultValues: { clienteId: "", modelo: "", placa: "", ano: "", cor: "" },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!userData) return;
-
     try {
-      // Encontra o nome do cliente para facilitar buscas futuras (opcional, mas útil)
       const clienteSelecionado = clientes.find(c => c.id === values.clienteId);
-      
       await addDoc(collection(db, "carros"), {
         ...values,
-        placa: values.placa.toUpperCase(), // Placa sempre maiúscula
+        placa: values.placa.toUpperCase(),
         nomeCliente: clienteSelecionado?.nome || "Desconhecido",
-        ownerId: userData.id
+        ownerId: userData?.id
       });
-
-      console.log("Carro cadastrado com sucesso!");
+      toast.success("Veículo cadastrado!");
       form.reset();
       setIsModalOpen(false);
-
     } catch (error) {
-      console.error("Erro ao cadastrar carro: ", error);
-      alert("Erro ao cadastrar veículo.");
+      toast.error("Erro ao cadastrar.");
     }
   }
 
@@ -186,109 +86,44 @@ export default function CarrosPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Veículos</h1>
-        
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogTrigger asChild>
-            <Button>Cadastrar Veículo</Button>
-          </DialogTrigger>
+          <DialogTrigger asChild><Button>Cadastrar Veículo</Button></DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Novo Veículo</DialogTitle>
-              <DialogDescription>
-                Cadastre o veículo e vincule a um cliente.
-              </DialogDescription>
-            </DialogHeader>
-
+            <DialogHeader><DialogTitle>Novo Veículo</DialogTitle><DialogDescription>Cadastre o veículo e vincule a um cliente.</DialogDescription></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                
-                <FormField
-                  control={form.control}
-                  name="clienteId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Dono (Cliente)</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione o cliente..." />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {clientes.map((cliente) => (
-                            <SelectItem key={cliente.id} value={cliente.id}>
-                              {cliente.nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="modelo"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Modelo</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Fiat Uno" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+                <FormField control={form.control} name="clienteId" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Dono (Cliente)</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {clientes.map((cliente) => <SelectItem key={cliente.id} value={cliente.id}>{cliente.nome}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="modelo" render={({ field }) => ( <FormItem><FormLabel>Modelo</FormLabel><FormControl><Input placeholder="Ex: Fiat Uno" {...field} /></FormControl><FormMessage /></FormItem> )} />
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="placa"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Placa</FormLabel>
-                        <FormControl>
-                          <Input placeholder="ABC-1234" {...field} className="uppercase" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="ano"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Ano</FormLabel>
-                        <FormControl>
-                          <Input placeholder="2010" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="cor"
-                  render={({ field }) => (
+                  <FormField control={form.control} name="placa" render={({ field }) => ( 
                     <FormItem>
-                      <FormLabel>Cor</FormLabel>
+                      <FormLabel>Placa</FormLabel>
                       <FormControl>
-                        <Input placeholder="Ex: Prata" {...field} />
+                        <Input 
+                          placeholder="ABC-1234" 
+                          {...field} 
+                          onChange={(e) => field.onChange(maskPlate(e.target.value))}
+                          maxLength={8}
+                        />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter>
-                  <Button type="submit" disabled={form.formState.isSubmitting}>
-                    {form.formState.isSubmitting ? "Salvando..." : "Salvar Veículo"}
-                  </Button>
-                </DialogFooter>
+                    </FormItem> 
+                  )} />
+                  <FormField control={form.control} name="ano" render={({ field }) => ( <FormItem><FormLabel>Ano</FormLabel><FormControl><Input placeholder="2010" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                </div>
+                <FormField control={form.control} name="cor" render={({ field }) => ( <FormItem><FormLabel>Cor</FormLabel><FormControl><Input placeholder="Ex: Prata" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                <DialogFooter><Button type="submit">Salvar Veículo</Button></DialogFooter>
               </form>
             </Form>
           </DialogContent>
@@ -302,22 +137,23 @@ export default function CarrosPage() {
               <TableHead>Modelo</TableHead>
               <TableHead>Placa</TableHead>
               <TableHead>Cor</TableHead>
-              <TableHead>Cliente (Dono)</TableHead>
+              <TableHead>Dono</TableHead>
               <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {carros.map((carro) => (
               <TableRow key={carro.id}>
-                <TableCell className="font-medium">{carro.modelo}</TableCell>
+                <TableCell>{carro.modelo}</TableCell>
                 <TableCell>{carro.placa}</TableCell>
                 <TableCell>{carro.cor || "-"}</TableCell>
                 <TableCell>{carro.nomeCliente}</TableCell>
                 <TableCell>
                    <Button variant="destructive" size="sm" 
                       onClick={async () => {
-                        if (confirm("Tem certeza que deseja excluir este veículo?")) {
+                        if (confirm("Excluir este veículo?")) {
                            await deleteDoc(doc(db, "carros", carro.id));
+                           toast.success("Veículo excluído.");
                         }
                       }}
                     >

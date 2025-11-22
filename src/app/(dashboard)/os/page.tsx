@@ -21,7 +21,6 @@ import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-// Importar toast
 import { toast } from "sonner";
 
 // Importações dos componentes Shadcn
@@ -333,6 +332,32 @@ export default function OsPage() {
     }
   }
 
+  // --- FUNÇÃO HELPER PARA A BADGE COLORIDA ---
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "aberta":
+        return (
+          <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
+            Aberta
+          </span>
+        );
+      case "finalizada":
+        return (
+          <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+            Finalizada
+          </span>
+        );
+      case "cancelada":
+        return (
+          <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+            Cancelada
+          </span>
+        );
+      default:
+        return <span className="capitalize">{status}</span>;
+    }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -348,6 +373,7 @@ export default function OsPage() {
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                {/* Campos do Formulário (Cliente e Veículo) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -429,6 +455,7 @@ export default function OsPage() {
                     )}
                   />
                 </div>
+                {/* Seleção de Itens */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -458,6 +485,8 @@ export default function OsPage() {
                   </Popover>
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
+                
+                {/* Tabela de Itens Selecionados */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -526,6 +555,7 @@ export default function OsPage() {
         </Dialog>
       </div>
 
+      {/* --- TABELA DE LISTAGEM DE OS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -548,7 +578,10 @@ export default function OsPage() {
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
                 <TableCell>{os.placaVeiculo}</TableCell>
                 <TableCell>{new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}</TableCell>
-                <TableCell>{os.status}</TableCell>
+                
+                {/* --- ATUALIZAÇÃO: Status com Badge Colorida --- */}
+                <TableCell>{getStatusBadge(os.status)}</TableCell>
+                
                 <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
                 <TableCell className="flex items-center">
                   <Button asChild variant="outline" size="sm">
