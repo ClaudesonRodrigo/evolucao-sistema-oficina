@@ -1,32 +1,19 @@
-# Este é o comando de build padrão do seu Next.js
+# netlify.toml
+
 [build]
   command = "npm run build"
-  publish = ".next" # Pasta de publicação do Next.js
+  publish = ".next"
 
-# Esta é a parte que faltava: configurar as funções
 [functions]
-  # Diz ao Netlify onde estão seus arquivos .ts
   directory = "netlify/functions"
-  
-  # Diz ao Netlify para usar o 'esbuild' para compilar
-  # automaticamente seus arquivos .ts para .js
   node_bundler = "esbuild"
 
-# Esta regra corrige o erro 404 (HTML) ao chamar as funções
-# em produção (no deploy)
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200 # status 200 significa que é um "rewrite" (reescrita)
+# REMOVI O BLOCO [[redirects]] QUE CAUSAVA O ERRO
+# O Netlify já gerencia as rotas de função automaticamente.
 
-# Esta é a configuração para rodar LOCALMENTE
 [dev]
-  # Comando para rodar o Next.js
   command = "npm run dev"
-  # Porta do Next.js
   targetPort = 3000
-  # Porta que o Netlify Dev vai usar (ex: 8888)
   port = 8888
-  # framework = "#static" # <--- ISSO ESTAVA ERRADO
-  framework = "next"   # <--- ESTE É O CORRETO
+  framework = "next"
   publish = ".next"

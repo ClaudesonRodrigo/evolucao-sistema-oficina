@@ -29,6 +29,7 @@ import {
   DialogTitle,
   DialogFooter,
   DialogDescription,
+  DialogTrigger, // <--- ADICIONADO AQUI
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -65,9 +66,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
-// --- ATUALIZAÇÃO: Importar o Skeleton ---
-import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 // --- INTERFACES ---
 interface Produto {
@@ -117,47 +115,29 @@ export default function ProdutosPage() {
 
   const [totalVendido, setTotalVendido] = useState<number | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
-  
-  // Estado local de carregamento da página (para garantir que o Skeleton apareça)
-  const [isLoadingData, setIsLoadingData] = useState(true);
 
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // --- GUARDIÃO DE ROTA (ATUALIZADO COM SKELETON) ---
-  // Se estiver carregando a auth OU os dados, mostra o Skeleton
-  if (authLoading || isLoadingData) {
-    // Apenas se já passou a auth e não é admin, redireciona. 
-    // Se ainda está carregando auth, espera.
-    if (!authLoading && userData && userData.role !== 'admin') {
-       router.push('/');
-       return null;
-    }
-    
-    // Se ainda não tem userData (e não terminou auth), ou se é admin carregando dados:
-    if (authLoading || (userData?.role === 'admin' && isLoadingData)) {
-       // Se for a primeira carga, pode retornar o Skeleton direto
-       // Mas precisamos da estrutura da página em volta (Título, Botão)
-       // Então vamos deixar renderizar o return principal, e lá embaixo usamos o Skeleton.
-    }
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  if (!userData || userData.role !== 'admin') {
+    router.push('/');
+    return null;
   }
 
   useEffect(() => {
-    // Se não for admin e já carregou auth, sai.
-    if (!authLoading && userData && userData.role !== 'admin') {
-        router.push('/');
-        return;
-    }
-
-    // Se for admin, busca os dados
-    if (userData?.role === 'admin') {
-        const unsub = onSnapshot(collection(db, "produtos"), (snapshot) => {
-        setProdutos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Produto)));
-        setIsLoadingData(false); // Dados carregados!
-        });
-        return () => unsub();
-    }
-  }, [userData, authLoading, router]);
+    const unsub = onSnapshot(collection(db, "produtos"), (snapshot) => {
+      setProdutos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Produto)));
+    });
+    return () => unsub();
+  }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -248,16 +228,19 @@ export default function ProdutosPage() {
     setLoadingReport(false); 
   };
 
-  // --- RENDERIZAÇÃO ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Produtos e Peças</h1>
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogTrigger asChild><Button>Adicionar Novo</Button></DialogTrigger>
+          <DialogTrigger asChild>
+            <Button>Adicionar Novo</Button>
+          </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader><DialogTitle>Novo Item</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Novo Item</DialogTitle>
+            </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField control={form.control} name="nome" render={({ field }) => ( <FormItem><FormLabel>Nome</FormLabel><FormControl><Input placeholder="Ex: Filtro" {...field} /></FormControl><FormMessage /></FormItem> )} />
@@ -304,51 +287,57 @@ export default function ProdutosPage() {
         </Dialog>
       </div>
 
-      {/* --- ATUALIZAÇÃO: CONDICIONAL DE SKELETON --- */}
-      {(authLoading || isLoadingData) ? (
-        <TableSkeleton />
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow><TableHead>Nome</TableHead><TableHead>Estoque</TableHead><TableHead>Custo</TableHead><TableHead>Venda</TableHead><TableHead>Ações</TableHead></TableRow>
-            </TableHeader>
-            <TableBody>
-              {produtos.map((produto) => (
-                <TableRow key={produto.id}>
-                  <TableCell>{produto.nome}</TableCell>
-                  <TableCell>
-                    <span className={produto.tipo === 'peca' && produto.monitorarEstoque !== false && produto.estoqueAtual <= (produto.estoqueMinimo || 3) ? "text-red-600 font-bold" : ""}>
-                      {produto.tipo === 'peca' ? produto.estoqueAtual : '-'}
-                    </span>
-                  </TableCell>
-                  <TableCell>{maskCurrency(produto.precoCusto)}</TableCell>
-                  <TableCell>{maskCurrency(produto.precoVenda)}</TableCell>
-                  <TableCell className="flex gap-2">
-                    <Button variant="ghost" size="icon-sm" onClick={() => handleEditarProduto(produto)} title="Editar"><Edit className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon-sm" onClick={() => handleVerRelatorio(produto)} title="Relatório"><Search className="h-4 w-4" /></Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" size="icon-sm" title="Excluir"><Trash2 className="h-4 w-4" /></Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
-                          <AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDeleteProduto(produto)} className="bg-red-600 hover:bg-red-700">Sim, excluir</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>Nome</TableHead><TableHead>Estoque</TableHead><TableHead>Custo</TableHead><TableHead>Venda</TableHead><TableHead>Ações</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {produtos.map((produto) => (
+              <TableRow key={produto.id}>
+                <TableCell>{produto.nome}</TableCell>
+                <TableCell>
+                  <span className={produto.tipo === 'peca' && produto.monitorarEstoque !== false && produto.estoqueAtual <= (produto.estoqueMinimo || 3) ? "text-red-600 font-bold" : ""}>
+                    {produto.tipo === 'peca' ? produto.estoqueAtual : '-'}
+                  </span>
+                </TableCell>
+                <TableCell>{maskCurrency(produto.precoCusto)}</TableCell>
+                <TableCell>{maskCurrency(produto.precoVenda)}</TableCell>
+                <TableCell className="flex gap-2">
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarProduto(produto)} title="Editar"><Edit className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleVerRelatorio(produto)} title="Relatório"><Search className="h-4 w-4" /></Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="icon-sm" title="Excluir">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Você tem certeza?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Essa ação não pode ser desfeita. Isso excluirá permanentemente o produto 
+                          <span className="font-bold text-foreground"> {produto.nome} </span> 
+                          do seu estoque.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction 
+                          onClick={() => handleDeleteProduto(produto)}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          Sim, excluir
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
       
       {/* Modal de Edição */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
